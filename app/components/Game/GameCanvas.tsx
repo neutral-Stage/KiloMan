@@ -2,6 +2,9 @@ import React, { useRef, useEffect } from 'react';
 import { GameStatus, PlayerState, GameConfig, LevelEntity, MonsterState } from './types';
 import { LEVEL_1 } from './levelData';
 
+const PLAYER_AVATAR_URL = 'https://github.com/neutral-Stage.png';
+const PLAYER_AVATAR_FALLBACK = '/KiloLogo.png';
+
 interface GameCanvasProps {
   gameState: GameStatus;
   setGameState: (status: GameStatus) => void;
@@ -12,6 +15,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, jumpMo
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
+  const playerAvatarRef = useRef<HTMLImageElement | null>(null);
   const [dimensions, setDimensions] = React.useState({ width: 800, height: 600 });
 
   useEffect(() => {
@@ -27,6 +31,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, jumpMo
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Load player avatar image
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      playerAvatarRef.current = img;
+    };
+    img.onerror = () => {
+      // Fallback to local asset on load failure
+      const fallback = new Image();
+      fallback.onload = () => {
+        playerAvatarRef.current = fallback;
+      };
+      fallback.onerror = () => {
+        // If fallback also fails, avatar remains null and original humanoid renders
+        playerAvatarRef.current = null;
+      };
+      fallback.src = PLAYER_AVATAR_FALLBACK;
+    };
+    img.src = PLAYER_AVATAR_URL;
   }, []);
   
   // Game Constants
@@ -226,30 +252,52 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, jumpMo
     ctx.ellipse(cx, y + p.height, p.width / 1.5, 5, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Body Color
-    ctx.fillStyle = '#eab308'; // Yellow 500
+    // Check if avatar image is loaded
+    if (playerAvatarRef.current) {
+      // Draw the avatar image
+      ctx.save();
+      // Flip the image if facing left
+      if (p.facing === -1) {
+        ctx.translate(cx, 0);
+        ctx.scale(-1, 1);
+        ctx.translate(-cx, 0);
+      }
+      ctx.drawImage(
+        playerAvatarRef.current,
+        x - 5,
+        y - 10,
+        p.width + 10,
+        p.height + 10
+      );
+      ctx.restore();
+    } else {
+      // Fallback: Draw the original humanoid
+      
+      // Body Color
+      ctx.fillStyle = '#eab308'; // Yellow 500
 
-    // Animation Offset
-    const bob = Math.sin(frameCountRef.current * 0.2) * (Math.abs(p.vx) > 0.1 ? 3 : 1);
+      // Animation Offset
+      const bob = Math.sin(frameCountRef.current * 0.2) * (Math.abs(p.vx) > 0.1 ? 3 : 1);
 
-    // Legs
-    const legOffset = Math.sin(frameCountRef.current * 0.4) * 10 * (Math.abs(p.vx) > 0.1 ? 1 : 0);
-    ctx.fillRect(cx - 8 + legOffset, y + 30, 6, 20); // Left Leg
-    ctx.fillRect(cx + 2 - legOffset, y + 30, 6, 20); // Right Leg
+      // Legs
+      const legOffset = Math.sin(frameCountRef.current * 0.4) * 10 * (Math.abs(p.vx) > 0.1 ? 1 : 0);
+      ctx.fillRect(cx - 8 + legOffset, y + 30, 6, 20); // Left Leg
+      ctx.fillRect(cx + 2 - legOffset, y + 30, 6, 20); // Right Leg
 
-    // Torso
-    ctx.fillRect(cx - 10, y + 15 + bob, 20, 20);
+      // Torso
+      ctx.fillRect(cx - 10, y + 15 + bob, 20, 20);
 
-    // Head
-    ctx.fillStyle = '#fef08a'; // Yellow 200
-    ctx.beginPath();
-    ctx.arc(cx, y + 10 + bob, 12, 0, Math.PI * 2);
-    ctx.fill();
+      // Head
+      ctx.fillStyle = '#fef08a'; // Yellow 200
+      ctx.beginPath();
+      ctx.arc(cx, y + 10 + bob, 12, 0, Math.PI * 2);
+      ctx.fill();
 
-    // Eyes (Directional)
-    ctx.fillStyle = '#000';
-    const eyeDir = p.facing === 1 ? 4 : -4;
-    ctx.fillRect(cx + eyeDir - 2, y + 8 + bob, 4, 4);
+      // Eyes (Directional)
+      ctx.fillStyle = '#000';
+      const eyeDir = p.facing === 1 ? 4 : -4;
+      ctx.fillRect(cx + eyeDir - 2, y + 8 + bob, 4, 4);
+    }
 
     ctx.restore();
   };
