@@ -1,8 +1,9 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { GameStatus, PlayerState, GameConfig, LevelEntity, MonsterState } from './types';
 import { LEVEL_1 } from './levelData';
 
 const PLAYER_AVATAR_URL = 'https://github.com/neutral-Stage.png';
+const PLAYER_AVATAR_FALLBACK = '/KiloLogo.png';
 
 interface GameCanvasProps {
   gameState: GameStatus;
@@ -35,10 +36,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, jumpMo
   // Load player avatar image
   useEffect(() => {
     const img = new Image();
-    img.src = PLAYER_AVATAR_URL;
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       playerAvatarRef.current = img;
     };
+    img.onerror = () => {
+      // Fallback to local asset on load failure
+      const fallback = new Image();
+      fallback.onload = () => {
+        playerAvatarRef.current = fallback;
+      };
+      fallback.onerror = () => {
+        // If fallback also fails, avatar remains null and original humanoid renders
+        playerAvatarRef.current = null;
+      };
+      fallback.src = PLAYER_AVATAR_FALLBACK;
+    };
+    img.src = PLAYER_AVATAR_URL;
   }, []);
   
   // Game Constants
@@ -244,8 +258,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState, jumpMo
       ctx.save();
       // Flip the image if facing left
       if (p.facing === -1) {
-        ctx.translate(cx * 2, 0);
+        ctx.translate(cx, 0);
         ctx.scale(-1, 1);
+        ctx.translate(-cx, 0);
       }
       ctx.drawImage(
         playerAvatarRef.current,
