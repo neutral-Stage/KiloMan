@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { GameStatus, PlayerState, GameConfig, LevelEntity, MonsterState } from './types';
 import { LEVEL_1 } from './levelData';
 
-const PLAYER_AVATAR_URL = 'https://github.com/neutral-Stage.png';
+const PLAYER_AVATAR_URL = 'https://avatars.githubusercontent.com/u/37474613?v=4';
 const PLAYER_AVATAR_FALLBACK = '/KiloLogo.png';
 
 interface GameCanvasProps {
