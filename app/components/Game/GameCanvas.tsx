@@ -42,7 +42,15 @@ class AudioEngine {
     if (!this.ctx) {
       this.ctx = new AudioContext();
     }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
     return this.ctx;
+  }
+
+  /** Call from a user-gesture handler to ensure the context is unlocked */
+  unlock() {
+    this.getCtx();
   }
 
   playLaser() {
@@ -322,6 +330,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current[e.code] = true;
+      // Unlock AudioContext on first user gesture
+      audioRef.current?.unlock();
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
         e.preventDefault();
       }
@@ -469,7 +479,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
-    if (keys['Space'] || true) { // auto-fire always
+    if (keys['Space']) {
       playerShoot(player, W);
     }
 
