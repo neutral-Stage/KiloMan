@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 * {
   margin: 0;
   padding: 0;
@@ -14,12 +16,3 @@ body {
   color: #ededed;
   font-family: Arial, Helvetica, sans-serif;
 }
-
-.w-screen { width: 100vw; }
-.h-screen { height: 100vh; }
-.w-full { width: 100%; }
-.h-full { height: 100%; }
-.overflow-hidden { overflow: hidden; }
-.bg-black { background-color: #000; }
-.relative { position: relative; }
-.block { display: block; }

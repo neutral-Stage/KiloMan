@@ -37,6 +37,7 @@ export interface Bullet {
   damage: number;
   color: string;
   isPlayerBullet: boolean;
+  destroyed?: boolean;
 }
 
 export type EnemyType = 'basic' | 'zigzag' | 'swooper' | 'tank' | 'boss';
@@ -62,6 +63,7 @@ export interface Enemy {
   startX: number;
   color: string;
   isBoss: boolean;
+  destroyed?: boolean;
 }
 
 export type PowerUpType = 'spread' | 'shield' | 'speed' | 'life';
