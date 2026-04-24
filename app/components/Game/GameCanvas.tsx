@@ -3,236 +3,22 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData, WaveConfig,
+  Particle, Star, GameData,
 } from './types';
-
-// ===== CONSTANTS =====
-const PLAYER_SHOOT_COOLDOWN = 8;
-const INVINCIBILITY_FRAMES = 120;
-const POWER_UP_DURATION = 600; // 10 seconds at 60fps
-const POWER_UP_DROP_CHANCE = 0.25;
-const BOSS_WAVE_INTERVAL = 5;
-const BETWEEN_WAVE_DELAY = 120;
-const STAR_LAYERS = 3;
-const STAR_COUNT = 150;
-
-// ===== COLORS =====
-const COLORS = {
-  cyan: '#00ffff',
-  magenta: '#ff00ff',
-  orange: '#ff8800',
-  green: '#00ff66',
-  yellow: '#ffff00',
-  red: '#ff3333',
-  white: '#ffffff',
-  playerShip: '#00ccff',
-  playerAccent: '#0088ff',
-  enemyBasic: '#ff4444',
-  enemyZigzag: '#ff8800',
-  enemySwooper: '#ff00ff',
-  enemyTank: '#888888',
-  boss: '#ff0044',
-};
-
-// ===== AUDIO ENGINE =====
-class AudioEngine {
-  private ctx: AudioContext | null = null;
-
-  private getCtx(): AudioContext {
-    if (!this.ctx) {
-      this.ctx = new AudioContext();
-    }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
-    }
-    return this.ctx;
-  }
-
-  /** Call from a user-gesture handler to ensure the context is unlocked */
-  unlock() {
-    this.getCtx();
-  }
-
-  playLaser() {
-    try {
-      const ctx = this.getCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.1);
-    } catch { /* ignore audio errors */ }
-  }
-
-  playExplosion() {
-    try {
-      const ctx = this.getCtx();
-      const bufferSize = ctx.sampleRate * 0.3;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
-      }
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      const gain = ctx.createGain();
-      source.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      source.start(ctx.currentTime);
-    } catch { /* ignore audio errors */ }
-  }
-
-  playPowerUp() {
-    try {
-      const ctx = this.getCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
-      osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.3);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
-    } catch { /* ignore audio errors */ }
-  }
-
-  playHit() {
-    try {
-      const ctx = this.getCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(200, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.15);
-    } catch { /* ignore audio errors */ }
-  }
-}
-
-// ===== WAVE DEFINITIONS =====
-function generateWave(waveNum: number): WaveConfig {
-  const isBossWave = waveNum % BOSS_WAVE_INTERVAL === 0 && waveNum > 0;
-  const difficulty = Math.floor(waveNum / 2);
-
-  if (isBossWave) {
-    return {
-      enemies: [
-        { type: 'basic', count: 2 + difficulty, delay: 20 },
-        { type: 'boss', count: 1, delay: 60 },
-      ],
-      isBossWave: true,
-    };
-  }
-
-  const configs: WaveConfig[] = [
-    // Wave patterns cycle with increasing difficulty
-    {
-      enemies: [{ type: 'basic', count: 4 + difficulty * 2, delay: 30 }],
-      isBossWave: false,
-    },
-    {
-      enemies: [
-        { type: 'basic', count: 3 + difficulty, delay: 25 },
-        { type: 'zigzag', count: 2 + difficulty, delay: 30 },
-      ],
-      isBossWave: false,
-    },
-    {
-      enemies: [
-        { type: 'zigzag', count: 3 + difficulty, delay: 25 },
-        { type: 'swooper', count: 2 + difficulty, delay: 35 },
-      ],
-      isBossWave: false,
-    },
-    {
-      enemies: [
-        { type: 'basic', count: 2 + difficulty, delay: 20 },
-        { type: 'tank', count: 1 + Math.floor(difficulty / 2), delay: 50 },
-        { type: 'zigzag', count: 2 + difficulty, delay: 25 },
-      ],
-      isBossWave: false,
-    },
-  ];
-
-  return configs[waveNum % configs.length];
-}
-
-function createEnemy(type: EnemyType, canvasWidth: number): Enemy {
-  const base = {
-    type: type,
-    y: -60,
-    health: 1,
-    maxHealth: 1,
-    shootTimer: 0,
-    shootInterval: 120,
-    patternTimer: 0,
-    patternAmplitude: 0,
-    startX: 0,
-    isBoss: false,
-  };
-
-  const x = 50 + Math.random() * (canvasWidth - 100);
-
-  switch (type) {
-    case 'basic':
-      return {
-        ...base, x, width: 30, height: 30, speed: 2, points: 100,
-        pattern: 'straight', color: COLORS.enemyBasic,
-        shootInterval: 90 + Math.random() * 60, startX: x,
-      };
-    case 'zigzag':
-      return {
-        ...base, x, width: 28, height: 28, speed: 2.5, points: 200,
-        pattern: 'zigzag', color: COLORS.enemyZigzag,
-        patternAmplitude: 80 + Math.random() * 60, startX: x,
-        shootInterval: 100 + Math.random() * 40,
-      };
-    case 'swooper':
-      return {
-        ...base, x, width: 32, height: 26, speed: 3, points: 300,
-        pattern: 'swoop', color: COLORS.enemySwooper,
-        patternAmplitude: 120, startX: x,
-        shootInterval: 70 + Math.random() * 50,
-      };
-    case 'tank':
-      return {
-        ...base, x, width: 40, height: 40, speed: 1, points: 500,
-        health: 5, maxHealth: 5, pattern: 'straight', color: COLORS.enemyTank,
-        shootInterval: 50 + Math.random() * 30, startX: x,
-      };
-    case 'boss':
-      return {
-        ...base,
-        x: canvasWidth / 2 - 60,
-        y: -120,
-        width: 120, height: 80, speed: 1.5, points: 5000,
-        health: 50, maxHealth: 50, pattern: 'boss', color: COLORS.boss,
-        shootInterval: 20, startX: canvasWidth / 2 - 60, isBoss: true,
-      };
-    default:
-      return {
-        ...base, x, width: 30, height: 30, speed: 2, points: 100,
-        pattern: 'straight', color: COLORS.enemyBasic, startX: x,
-      };
-  }
-}
+import AudioEngine from './AudioEngine';
+import { generateWave, createEnemy } from './waveGenerator';
+import { rectsOverlap } from './collision';
+import {
+  PLAYER_SHOOT_COOLDOWN,
+  INVINCIBILITY_FRAMES,
+  POWER_UP_DURATION,
+  POWER_UP_DROP_CHANCE,
+  BOSS_WAVE_INTERVAL,
+  BETWEEN_WAVE_DELAY,
+  STAR_LAYERS,
+  STAR_COUNT,
+  COLORS,
+} from './constants';
 
 // ===== COMPONENT =====
 interface GameCanvasProps {
@@ -273,7 +59,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   function createDefaultGameData(): GameData {
     let highScore = 0;
     if (typeof window !== 'undefined') {
-      highScore = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
+      try {
+        highScore = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
+      } catch {
+        // localStorage may be unavailable in private browsing
+      }
     }
     return {
       score: 0, wave: 0, highScore,
@@ -373,7 +163,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   }, [gameState, dimensions, initStars]);
 
   // ===== SPAWN HELPERS =====
-  function spawnParticles(x: number, y: number, count: number, color: string, speed = 3) {
+  const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const spd = speed * (0.5 + Math.random());
@@ -387,18 +177,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         size: 2 + Math.random() * 3,
       });
     }
-  }
+  }, []);
 
-  function spawnPowerUp(x: number, y: number) {
+  const spawnPowerUp = useCallback((x: number, y: number) => {
     if (Math.random() > POWER_UP_DROP_CHANCE) return;
     const types: PowerUpType[] = ['spread', 'shield', 'speed', 'life'];
     const type = types[Math.floor(Math.random() * types.length)];
     powerUpsRef.current.push({
       x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
     });
-  }
+  }, []);
 
-  function playerShoot(player: PlayerShip, w: number) {
+  const playerShoot = useCallback((player: PlayerShip, w: number) => {
     if (shootCooldownRef.current > 0) return;
     shootCooldownRef.current = PLAYER_SHOOT_COOLDOWN;
     audioRef.current?.playLaser();
@@ -421,9 +211,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     bulletsRef.current = bulletsRef.current.filter(b =>
       b.x > -20 && b.x < w + 20
     );
-  }
+  }, []);
 
-  function enemyShoot(enemy: Enemy) {
+  const enemyShoot = useCallback((enemy: Enemy) => {
     const cx = enemy.x + enemy.width / 2;
     const cy = enemy.y + enemy.height;
 
@@ -443,15 +233,60 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         color: COLORS.orange, isPlayerBullet: false,
       });
     }
-  }
+  }, []);
 
-  // ===== COLLISION =====
-  function rectsOverlap(
-    ax: number, ay: number, aw: number, ah: number,
-    bx: number, by: number, bw: number, bh: number,
-  ): boolean {
-    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
-  }
+  const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
+    player.lives--;
+    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
+    audioRef.current?.playExplosion();
+
+    if (player.lives <= 0) {
+      // Game over
+      const gd = gameDataRef.current;
+      if (gd.score > gd.highScore) {
+        gd.highScore = gd.score;
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('kiloShooterHighScore', gd.highScore.toString());
+          } catch {
+            // localStorage may be unavailable in private browsing
+          }
+        }
+      }
+      setGameState('gameover');
+    } else {
+      player.invincibleTimer = INVINCIBILITY_FRAMES;
+      player.x = W / 2 - player.width / 2;
+      player.y = H - 80;
+      player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
+    }
+  }, [spawnParticles, setGameState]);
+
+  const applyPowerUp = useCallback((player: PlayerShip, type: PowerUpType) => {
+    switch (type) {
+      case 'spread': player.powerUps.spreadShot = POWER_UP_DURATION; break;
+      case 'shield': player.powerUps.shield = POWER_UP_DURATION; break;
+      case 'speed': player.powerUps.speedBoost = POWER_UP_DURATION; break;
+      case 'life': player.lives = Math.min(player.lives + 1, 5); break;
+    }
+  }, []);
+
+  const startWave = useCallback((gd: GameData) => {
+    const wave = generateWave(gd.wave);
+    const queue: Array<{ type: EnemyType; spawnAt: number }> = [];
+    let time = 0;
+    let totalEnemies = 0;
+    for (const group of wave.enemies) {
+      for (let i = 0; i < group.count; i++) {
+        queue.push({ type: group.type, spawnAt: time });
+        time += group.delay;
+        totalEnemies++;
+      }
+    }
+    gd.waveSpawnQueue = queue;
+    gd.waveTimer = 0;
+    gd.waveEnemiesRemaining = totalEnemies;
+  }, []);
 
   // ===== UPDATE =====
   const update = useCallback((dt: number) => {
@@ -504,7 +339,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       b.y += b.vy * dt;
     });
     bulletsRef.current = bulletsRef.current.filter(b =>
-      b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
+      !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
     );
 
     // --- Enemies ---
@@ -576,8 +411,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
           enemy.x, enemy.y, enemy.width, enemy.height)) {
           enemy.health -= bullet.damage;
-          bullet.vy = 9999; // mark for removal (will go off screen)
-          bullet.y = -100;
+          bullet.destroyed = true;
 
           if (enemy.health <= 0) {
             // Enemy destroyed
@@ -587,7 +421,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
               enemy.isBoss ? 40 : 15, enemy.color, enemy.isBoss ? 5 : 3);
             audioRef.current?.playExplosion();
             spawnPowerUp(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
-            enemy.y = -9999; // mark for removal
+            enemy.destroyed = true;
           } else {
             // Hit flash
             spawnParticles(bullet.x, bullet.y, 3, COLORS.white, 1);
@@ -597,14 +431,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         }
       }
     }
-    enemiesRef.current = enemiesRef.current.filter(e => e.y > -9000);
+    enemiesRef.current = enemiesRef.current.filter(e => !e.destroyed);
 
     // --- Collision: Enemy bullets vs player ---
     if (player.invincibleTimer <= 0) {
       for (const bullet of enemyBullets) {
         if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
           player.x, player.y, player.width, player.height)) {
-          bullet.y = -100;
+          bullet.destroyed = true;
           if (player.powerUps.shield > 0) {
             player.powerUps.shield = 0;
             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
@@ -674,57 +508,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.highScore = gd.score;
     }
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState, dimensions]);
-
-  function playerHit(player: PlayerShip, W: number, H: number) {
-    player.lives--;
-    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
-    audioRef.current?.playExplosion();
-
-    if (player.lives <= 0) {
-      // Game over
-      const gd = gameDataRef.current;
-      if (gd.score > gd.highScore) {
-        gd.highScore = gd.score;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('kiloShooterHighScore', gd.highScore.toString());
-        }
-      }
-      setGameState('gameover');
-    } else {
-      player.invincibleTimer = INVINCIBILITY_FRAMES;
-      player.x = W / 2 - player.width / 2;
-      player.y = H - 80;
-      player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
-    }
-  }
-
-  function applyPowerUp(player: PlayerShip, type: PowerUpType) {
-    switch (type) {
-      case 'spread': player.powerUps.spreadShot = POWER_UP_DURATION; break;
-      case 'shield': player.powerUps.shield = POWER_UP_DURATION; break;
-      case 'speed': player.powerUps.speedBoost = POWER_UP_DURATION; break;
-      case 'life': player.lives = Math.min(player.lives + 1, 5); break;
-    }
-  }
-
-  function startWave(gd: GameData) {
-    const wave = generateWave(gd.wave);
-    const queue: Array<{ type: EnemyType; spawnAt: number }> = [];
-    let time = 0;
-    let totalEnemies = 0;
-    for (const group of wave.enemies) {
-      for (let i = 0; i < group.count; i++) {
-        queue.push({ type: group.type, spawnAt: time });
-        time += group.delay;
-        totalEnemies++;
-      }
-    }
-    gd.waveSpawnQueue = queue;
-    gd.waveTimer = 0;
-    gd.waveEnemiesRemaining = totalEnemies;
-  }
+  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -846,7 +630,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.fillText('WASD / Arrow Keys: Move  •  Space: Shoot  •  Auto-fire enabled', W / 2, H / 2 + 80);
 
     // High score
-    const hs = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
+    let hs = 0;
+    if (typeof window !== 'undefined') {
+      try {
+        hs = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
+      } catch {
+        // localStorage may be unavailable in private browsing
+      }
+    }
     if (hs > 0) {
       ctx.fillStyle = COLORS.yellow;
       ctx.font = `${Math.min(18, W * 0.022)}px monospace`;
