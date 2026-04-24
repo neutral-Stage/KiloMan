@@ -37,7 +37,7 @@ class AudioEngine {
   playExplosion() {
     try {
       const ctx = this.getCtx();
-      const bufferSize = ctx.sampleRate * 0.3;
+      const bufferSize = Math.floor(ctx.sampleRate * 0.3);
       const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < bufferSize; i++) {

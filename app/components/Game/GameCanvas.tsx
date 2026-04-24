@@ -431,14 +431,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         }
       }
     }
-    enemiesRef.current = enemiesRef.current.filter(e => !e.destroyed && e.y < H + 50);
+    enemiesRef.current = enemiesRef.current.filter(e => !e.destroyed);
 
     // --- Collision: Enemy bullets vs player ---
     if (player.invincibleTimer <= 0) {
       for (const bullet of enemyBullets) {
         if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
           player.x, player.y, player.width, player.height)) {
-          bullet.y = -100;
+          bullet.destroyed = true;
           if (player.powerUps.shield > 0) {
             player.powerUps.shield = 0;
             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
