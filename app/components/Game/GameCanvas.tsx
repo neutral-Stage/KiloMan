@@ -179,7 +179,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       frameRef.current = 0;
       cameraRef.current = createDefaultCamera(w, h);
       initStars(w, h);
-     }
+    }
   }, [gameState, dimensions, initStars]);
 
   // ===== SPAWN HELPERS =====
@@ -306,12 +306,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       player.invincibleTimer = INVINCIBILITY_FRAMES;
       // Respawn at center-bottom of camera view (within world bounds)
       const cam = cameraRef.current;
-       player.x = cam.x + W / 2 - player.width / 2;
-       player.y = cam.y + H - 80;
-       // Clamp to camera viewport (keep player on screen)
-       player.x = Math.max(cam.x, Math.min(cam.x + cam.width - player.width, player.x));
-       player.y = Math.max(cam.y + H * 0.3, Math.min(cam.y + H - player.height - 10, player.y));
-       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
+      player.x = cam.x + W / 2 - player.width / 2;
+      player.y = cam.y + H - 80;
+      // Clamp to camera viewport (keep player on screen)
+      player.x = Math.max(cam.x, Math.min(cam.x + cam.width - player.width, player.x));
+      player.y = Math.max(cam.y + H * 0.3, Math.min(cam.y + H - player.height - 10, player.y));
+      player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
     }
   }, [spawnParticles, setGameState]);
 
