@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData,
+  Particle, Star, GameData, Camera,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
@@ -18,6 +18,9 @@ import {
   STAR_LAYERS,
   STAR_COUNT,
   COLORS,
+  CAMERA_SMOOTHING,
+  CAMERA_OFFSET_Y,
+  WORLD_HEIGHT,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -45,6 +48,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const frameRef = useRef(0);
   const audioRef = useRef<AudioEngine | null>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
+  const cameraRef = useRef<Camera>(createDefaultCamera(800, 600));
 
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
@@ -75,20 +79,35 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }
 
-  // Initialize stars
+  function createDefaultCamera(w: number, h: number): Camera {
+    return {
+      x: 0, y: 0,
+      width: w,
+      height: h,
+      targetX: 0, targetY: 0,
+      smoothing: CAMERA_SMOOTHING,
+    };
+  }
+
+  // Initialize stars in world space
   const initStars = useCallback((w: number, h: number) => {
+    const worldW = w;
+    const worldH = WORLD_HEIGHT;
     const stars: Star[] = [];
     for (let i = 0; i < STAR_COUNT; i++) {
       const layer = i % STAR_LAYERS;
       stars.push({
-        x: Math.random() * w,
-        y: Math.random() * h,
+        x: Math.random() * worldW,
+        y: Math.random() * worldH,
         speed: 0.5 + layer * 1.2,
         size: 1 + layer * 0.5,
         brightness: 0.3 + layer * 0.25,
       });
     }
     starsRef.current = stars;
+    // Reset camera dimensions
+    cameraRef.current.width = w;
+    cameraRef.current.height = h;
   }, []);
 
   // Resize handler
@@ -158,6 +177,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gameDataRef.current = createDefaultGameData();
       shootCooldownRef.current = 0;
       frameRef.current = 0;
+      cameraRef.current = createDefaultCamera(w, h);
       initStars(w, h);
     }
   }, [gameState, dimensions, initStars]);
@@ -187,6 +207,34 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
     });
   }, []);
+
+  // ===== CAMERA =====
+  const updateCamera = useCallback(() => {
+    const camera = cameraRef.current;
+    const player = playerRef.current;
+
+    // Target: center camera on player with vertical offset (look above player)
+    const playerCenterX = player.x + player.width / 2;
+    const playerCenterY = player.y + player.height / 2;
+
+    camera.targetX = playerCenterX - camera.width / 2;
+    camera.targetY = playerCenterY - camera.height * (1 + CAMERA_OFFSET_Y);
+
+    // World bounds
+    const worldW = dimensions.width;
+    const worldH = WORLD_HEIGHT;
+
+    camera.targetX = Math.max(0, Math.min(worldW - camera.width, camera.targetX));
+    camera.targetY = Math.max(0, Math.min(worldH - camera.height, camera.targetY));
+
+    // Smooth follow (lerp)
+    camera.x += (camera.targetX - camera.x) * camera.smoothing;
+    camera.y += (camera.targetY - camera.y) * camera.smoothing;
+
+    // Clamp camera to world
+    camera.x = Math.max(0, Math.min(worldW - camera.width, camera.x));
+    camera.y = Math.max(0, Math.min(worldH - camera.height, camera.y));
+  }, [dimensions]);
 
   const playerShoot = useCallback((player: PlayerShip, w: number) => {
     if (shootCooldownRef.current > 0) return;
@@ -256,8 +304,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       setGameState('gameover');
     } else {
       player.invincibleTimer = INVINCIBILITY_FRAMES;
-      player.x = W / 2 - player.width / 2;
-      player.y = H - 80;
+      // Respawn at center-bottom of camera view (within world bounds)
+      const cam = cameraRef.current;
+      player.x = cam.x + W / 2 - player.width / 2;
+      player.y = cam.y + H - 80;
+      // Clamp to camera viewport (keep player on screen)
+      player.x = Math.max(cam.x, Math.min(cam.x + cam.width - player.width, player.x));
+      player.y = Math.max(cam.y + H * 0.3, Math.min(cam.y + H - player.height - 10, player.y));
       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
     }
   }, [spawnParticles, setGameState]);
@@ -297,6 +350,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const gd = gameDataRef.current;
     const W = dimensions.width;
     const H = dimensions.height;
+    const worldW = dimensions.width;
+    const worldH = WORLD_HEIGHT;
+    const camera = cameraRef.current;
 
     frameRef.current++;
     player.thrusterFrame++;
@@ -308,9 +364,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
     if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
 
-    // Clamp to screen
-    player.x = Math.max(0, Math.min(W - player.width, player.x));
-    player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
+    // Clamp to camera viewport (player stays on screen)
+    player.x = Math.max(camera.x, Math.min(camera.x + camera.width - player.width, player.x));
+    player.y = Math.max(camera.y + H * 0.3, Math.min(camera.y + H - player.height - 10, player.y));
+
+    // Update camera AFTER player movement
+    updateCamera();
 
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
@@ -324,12 +383,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (player.powerUps.speedBoost > 0) player.powerUps.speedBoost -= dt;
     if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
-    // --- Stars ---
+    // --- Stars --- (world-space wrapping)
     starsRef.current.forEach(star => {
       star.y += star.speed * dt;
-      if (star.y > H) {
+      if (star.y > worldH) {
         star.y = 0;
-        star.x = Math.random() * W;
+        star.x = Math.random() * worldW;
       }
     });
 
@@ -338,8 +397,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
     });
+    // Cull bullets outside camera view (with margin)
+    const cam = cameraRef.current;
+    const cullMargin = 100;
     bulletsRef.current = bulletsRef.current.filter(b =>
-      !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
+      !b.destroyed &&
+      b.x > cam.x - cullMargin && b.x < cam.x + cam.width + cullMargin &&
+      b.y > cam.y - cullMargin && b.y < cam.y + cam.height + cullMargin
     );
 
     // --- Enemies ---
@@ -367,13 +431,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
           if (e.y < 60) {
             e.y += e.speed * dt;
           } else {
-            e.x = W / 2 - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (W * 0.3);
+            e.x = (camera.x + camera.width / 2) - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (camera.width * 0.3);
           }
           break;
       }
 
-      // Clamp enemy X
-      e.x = Math.max(0, Math.min(W - e.width, e.x));
+      // Clamp enemy X to world bounds (not screen)
+      e.x = Math.max(0, Math.min(worldW - e.width, e.x));
 
       // Enemy shooting
       if (e.shootTimer >= e.shootInterval && e.y > 0) {
@@ -382,16 +446,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       }
     });
 
-    // Remove off-screen enemies
-    const offScreenEnemies = enemiesRef.current.filter(e => e.y > H + 100);
+    // Remove off-screen enemies (below camera view)
+    const offScreenEnemies = enemiesRef.current.filter(e => e.y > cam.y + cam.height + 100);
     offScreenEnemies.forEach(() => {
       gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
     });
-    enemiesRef.current = enemiesRef.current.filter(e => e.y <= H + 100);
+    enemiesRef.current = enemiesRef.current.filter(e => e.y <= cam.y + cam.height + 100);
 
     // --- Power-ups ---
     powerUpsRef.current.forEach(p => { p.y += p.vy * dt; });
-    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < H + 30);
+    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < cam.y + cam.height + 30);
 
     // --- Particles ---
     particlesRef.current.forEach(p => {
@@ -491,7 +555,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.waveTimer += dt;
       const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
       for (const s of toSpawn) {
-        enemiesRef.current.push(createEnemy(s.type, W));
+        enemiesRef.current.push(createEnemy(s.type, W, camera.y));
       }
       gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
 
@@ -508,7 +572,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.highScore = gd.score;
     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
+  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave, updateCamera]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -516,18 +580,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const H = ctx.canvas.height;
     const player = playerRef.current;
     const gd = gameDataRef.current;
+    const camera = cameraRef.current;
 
-    // Clear
+    // Clear screen
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, W, H);
 
-    // --- Stars ---
+    // Draw stars (always in screen-space with parallax based on camera)
+    // For start/gameover, stars move slower (ambient). For playing, they show depth.
+    ctx.save();
+    ctx.translate(-camera.x * 0.1, -camera.y * 0.1); // Parallax effect
     starsRef.current.forEach(star => {
       ctx.globalAlpha = star.brightness;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(star.x, star.y, star.size, star.size);
     });
     ctx.globalAlpha = 1;
+    ctx.restore();
 
     if (gameState === 'start') {
       drawStartScreen(ctx, W, H);
@@ -538,6 +607,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       drawGameOverScreen(ctx, W, H, gd);
       return;
     }
+
+    // Draw world with camera transform
+    ctx.save();
+    ctx.translate(-camera.x, -camera.y);
 
     // --- Particles (behind everything) ---
     particlesRef.current.forEach(p => {
@@ -573,10 +646,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       drawPlayer(ctx, player);
     }
 
-    // --- HUD ---
+    ctx.restore();
+
+    // --- HUD (screen-space) ---
     drawHUD(ctx, W, gd, player);
 
-    // --- Wave indicator ---
+    // --- Wave indicator (screen-space) ---
     if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
