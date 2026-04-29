@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData,
+  Particle, Star, GameData, ParallaxLayer,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
@@ -18,6 +18,7 @@ import {
   STAR_LAYERS,
   STAR_COUNT,
   COLORS,
+  PARALLAX_LAYERS,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -37,9 +38,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const bulletsRef = useRef<Bullet[]>([]);
   const enemiesRef = useRef<Enemy[]>([]);
   const powerUpsRef = useRef<PowerUp[]>([]);
-  const particlesRef = useRef<Particle[]>([]);
-  const starsRef = useRef<Star[]>([]);
-  const gameDataRef = useRef<GameData>(createDefaultGameData());
+   const particlesRef = useRef<Particle[]>([]);
+   const starsRef = useRef<Star[]>([]);
+   const parallaxLayersRef = useRef<ParallaxLayer[]>([]);
+   const gameDataRef = useRef<GameData>(createDefaultGameData());
   const keysRef = useRef<Record<string, boolean>>({});
   const shootCooldownRef = useRef(0);
   const frameRef = useRef(0);
@@ -75,34 +77,121 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }
 
-  // Initialize stars
-  const initStars = useCallback((w: number, h: number) => {
-    const stars: Star[] = [];
-    for (let i = 0; i < STAR_COUNT; i++) {
-      const layer = i % STAR_LAYERS;
-      stars.push({
-        x: Math.random() * w,
-        y: Math.random() * h,
-        speed: 0.5 + layer * 1.2,
-        size: 1 + layer * 0.5,
-        brightness: 0.3 + layer * 0.25,
-      });
-    }
-    starsRef.current = stars;
-  }, []);
+   // Initialize stars
+   const initStars = useCallback((w: number, h: number) => {
+     const stars: Star[] = [];
+     for (let i = 0; i < STAR_COUNT; i++) {
+       const layer = i % STAR_LAYERS;
+       stars.push({
+         x: Math.random() * w,
+         y: Math.random() * h,
+         speed: 0.5 + layer * 1.2,
+         size: 1 + layer * 0.5,
+         brightness: 0.3 + layer * 0.25,
+       });
+     }
+     starsRef.current = stars;
+   }, []);
 
-  // Resize handler
-  useEffect(() => {
-    const handleResize = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      setDimensions({ width: w, height: h });
-      initStars(w, h);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [initStars]);
+   // Initialize parallax background layers
+   const initParallaxLayers = useCallback((w: number, h: number) => {
+     const layers: ParallaxLayer[] = PARALLAX_LAYERS.map(config => {
+       const layer: ParallaxLayer = {
+         type: config.type,
+         speedFactor: config.speedFactor,
+         color: config.color,
+         secondaryColor: config.secondaryColor,
+         elements: [],
+       };
+
+       switch (config.type) {
+         case 'stars': {
+           // Create multiple star layers within this parallax layer
+           const starCount = Math.floor(STAR_COUNT * 0.6);
+           for (let i = 0; i < starCount; i++) {
+             const depth = i % 3; // 0=far, 1=mid, 2=near within star layer
+             const size = 1 + depth * 0.7;
+             layer.elements.push({
+               x: Math.random() * w * 1.5,
+               y: Math.random() * h,
+               width: size,
+               height: size,
+               speed: 0.2 + depth * 0.3,
+               brightness: 0.3 + depth * 0.2,
+             });
+           }
+           break;
+         }
+         case 'nebula': {
+           // Create large soft gradient clouds
+           const cloudCount = 4;
+           for (let i = 0; i < cloudCount; i++) {
+             layer.elements.push({
+               x: Math.random() * w,
+               y: Math.random() * h * 0.6,
+               width: 300 + Math.random() * 400,
+               height: 150 + Math.random() * 200,
+             });
+           }
+           break;
+         }
+         case 'mountains': {
+           // Create mountain range silhouettes
+           const mountainCount = Math.ceil(h * 0.15);
+           const segmentWidth = w / mountainCount;
+           for (let i = 0; i <= mountainCount; i++) {
+             const peakHeight = 80 + Math.random() * 120;
+             const points = [
+               { x: i * segmentWidth, y: h },
+               { x: i * segmentWidth + segmentWidth * 0.3, y: h - peakHeight * 0.5 },
+               { x: i * segmentWidth + segmentWidth * 0.5, y: h - peakHeight },
+               { x: i * segmentWidth + segmentWidth * 0.7, y: h - peakHeight * 0.6 },
+               { x: i * segmentWidth + segmentWidth, y: h },
+             ];
+             layer.elements.push({
+               x: i * segmentWidth,
+               y: h,
+               width: segmentWidth,
+               height: peakHeight,
+               points,
+             });
+           }
+           break;
+         }
+         case 'cityscape': {
+           // Create city skyline
+           const buildingCount = Math.ceil(w / 40);
+           for (let i = 0; i < buildingCount; i++) {
+             const bWidth = 25 + Math.random() * 30;
+             const bHeight = 60 + Math.random() * 120;
+             layer.elements.push({
+               x: i * 40,
+               y: h - bHeight,
+               width: bWidth,
+               height: bHeight,
+             });
+           }
+           break;
+         }
+       }
+       return layer;
+     });
+     parallaxLayersRef.current = layers;
+   }, []);
+
+   // Resize handler
+   useEffect(() => {
+     const handleResize = () => {
+       const w = window.innerWidth;
+       const h = window.innerHeight;
+       setDimensions({ width: w, height: h });
+       initStars(w, h);
+       initParallaxLayers(w, h);
+     };
+     handleResize();
+     window.addEventListener('resize', handleResize);
+     return () => window.removeEventListener('resize', handleResize);
+   }, [initStars, initParallaxLayers]);
 
   // Load logo
   useEffect(() => {
@@ -145,22 +234,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }, [gameState, setGameState]);
 
-  // Reset game on state change to playing
-  useEffect(() => {
-    if (gameState === 'playing') {
-      const w = dimensions.width;
-      const h = dimensions.height;
-      playerRef.current = createDefaultPlayer(w / 2, h - 80);
-      bulletsRef.current = [];
-      enemiesRef.current = [];
-      powerUpsRef.current = [];
-      particlesRef.current = [];
-      gameDataRef.current = createDefaultGameData();
-      shootCooldownRef.current = 0;
-      frameRef.current = 0;
-      initStars(w, h);
-    }
-  }, [gameState, dimensions, initStars]);
+   // Reset game on state change to playing
+   useEffect(() => {
+     if (gameState === 'playing') {
+       const w = dimensions.width;
+       const h = dimensions.height;
+       playerRef.current = createDefaultPlayer(w / 2, h - 80);
+       bulletsRef.current = [];
+       enemiesRef.current = [];
+       powerUpsRef.current = [];
+       particlesRef.current = [];
+       gameDataRef.current = createDefaultGameData();
+       shootCooldownRef.current = 0;
+       frameRef.current = 0;
+       initStars(w, h);
+       initParallaxLayers(w, h);
+     }
+   }, [gameState, dimensions, initStars, initParallaxLayers]);
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
@@ -324,16 +414,32 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (player.powerUps.speedBoost > 0) player.powerUps.speedBoost -= dt;
     if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
-    // --- Stars ---
-    starsRef.current.forEach(star => {
-      star.y += star.speed * dt;
-      if (star.y > H) {
-        star.y = 0;
-        star.x = Math.random() * W;
-      }
-    });
+     // --- Stars ---
+     starsRef.current.forEach(star => {
+       star.y += star.speed * dt;
+       if (star.y > H) {
+         star.y = 0;
+         star.x = Math.random() * W;
+       }
+     });
 
-    // --- Bullets ---
+     // --- Parallax Background Layers ---
+     parallaxLayersRef.current.forEach(layer => {
+       const scrollSpeed = layer.speedFactor * 2 * dt; // base scroll rate
+       layer.elements.forEach(el => {
+         el.x -= scrollSpeed;
+         // Wrap elements when they go off screen left
+         if (el.x + el.width < 0) {
+           el.x += W + el.width * 0.5; // shift right, add some buffer
+           // For mountains, adjust y slightly for variety
+           if (layer.type === 'mountains') {
+             // Already handled by x wrap
+           }
+         }
+       });
+     });
+
+     // --- Bullets ---
     bulletsRef.current.forEach(b => {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
@@ -510,89 +616,163 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
   }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
 
-  // ===== DRAWING =====
-  const draw = useCallback((ctx: CanvasRenderingContext2D) => {
-    const W = ctx.canvas.width;
-    const H = ctx.canvas.height;
-    const player = playerRef.current;
-    const gd = gameDataRef.current;
+   // ===== DRAWING =====
+   const drawParallaxLayers = useCallback((ctx: CanvasRenderingContext2D, W: number, H: number) => {
+     parallaxLayersRef.current.forEach(layer => {
+       switch (layer.type) {
+         case 'nebula': {
+           ctx.save();
+           layer.elements.forEach(el => {
+             const grad = ctx.createRadialGradient(
+               el.x + el.width / 2, el.y + el.height / 2, 0,
+               el.x + el.width / 2, el.y + el.height / 2, el.width / 2
+             );
+             grad.addColorStop(0, layer.color);
+             grad.addColorStop(1, 'transparent');
+             ctx.fillStyle = grad;
+             ctx.globalAlpha = 0.3;
+             ctx.fillRect(el.x, el.y, el.width, el.height);
+           });
+           ctx.restore();
+           break;
+         }
+         case 'mountains': {
+           ctx.save();
+           ctx.fillStyle = layer.color;
+           layer.elements.forEach(el => {
+             if (el.points && el.points.length > 1) {
+               ctx.beginPath();
+               ctx.moveTo(el.points[0].x, el.points[0].y);
+               for (let i = 1; i < el.points.length; i++) {
+                 ctx.lineTo(el.points[i].x, el.points[i].y);
+               }
+               ctx.closePath();
+               ctx.fill();
+             }
+           });
+           ctx.restore();
+           break;
+         }
+         case 'stars': {
+           ctx.save();
+           layer.elements.forEach(el => {
+             ctx.globalAlpha = el.brightness || 0.5;
+             ctx.fillStyle = layer.color;
+             ctx.fillRect(el.x, el.y, el.width, el.height);
+           });
+           ctx.restore();
+           break;
+         }
+         case 'cityscape': {
+           ctx.save();
+           ctx.fillStyle = layer.color;
+           layer.elements.forEach(el => {
+             ctx.fillRect(el.x, el.y, el.width, el.height);
+             // Windows
+             ctx.fillStyle = layer.secondaryColor || '#222244';
+             const winSize = 3;
+             const winGap = 6;
+             for (let wy = el.y + 5; wy < el.y + el.height - 5; wy += winGap) {
+               for (let wx = el.x + 5; wx < el.x + el.width - 5; wx += winGap) {
+                 if (Math.random() > 0.3) {
+                   ctx.fillRect(wx, wy, winSize, winSize);
+                 }
+               }
+             }
+             ctx.fillStyle = layer.color;
+           });
+           ctx.restore();
+           break;
+         }
+       }
+     });
+   }, []);
 
-    // Clear
-    ctx.fillStyle = '#050510';
-    ctx.fillRect(0, 0, W, H);
+   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
+     const W = ctx.canvas.width;
+     const H = ctx.canvas.height;
+     const player = playerRef.current;
+     const gd = gameDataRef.current;
 
-    // --- Stars ---
-    starsRef.current.forEach(star => {
-      ctx.globalAlpha = star.brightness;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(star.x, star.y, star.size, star.size);
-    });
-    ctx.globalAlpha = 1;
+     // Clear
+     ctx.fillStyle = '#050510';
+     ctx.fillRect(0, 0, W, H);
 
-    if (gameState === 'start') {
-      drawStartScreen(ctx, W, H);
-      return;
-    }
+     // --- Parallax Background ---
+     drawParallaxLayers(ctx, W, H);
 
-    if (gameState === 'gameover') {
-      drawGameOverScreen(ctx, W, H, gd);
-      return;
-    }
+     // --- Stars (original twinkling layer) ---
+     starsRef.current.forEach(star => {
+       ctx.globalAlpha = star.brightness;
+       ctx.fillStyle = '#ffffff';
+       ctx.fillRect(star.x, star.y, star.size, star.size);
+     });
+     ctx.globalAlpha = 1;
 
-    // --- Particles (behind everything) ---
-    particlesRef.current.forEach(p => {
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
+     if (gameState === 'start') {
+       drawStartScreen(ctx, W, H);
+       return;
+     }
 
-    // --- Power-ups ---
-    powerUpsRef.current.forEach(pu => {
-      drawPowerUp(ctx, pu);
-    });
+     if (gameState === 'gameover') {
+       drawGameOverScreen(ctx, W, H, gd);
+       return;
+     }
 
-    // --- Bullets ---
-    bulletsRef.current.forEach(b => {
-      ctx.fillStyle = b.color;
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 8;
-      ctx.fillRect(b.x, b.y, b.width, b.height);
-      ctx.shadowBlur = 0;
-    });
+     // --- Particles (behind everything) ---
+     particlesRef.current.forEach(p => {
+       ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+       ctx.fillStyle = p.color;
+       ctx.beginPath();
+       ctx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI * 2);
+       ctx.fill();
+     });
+     ctx.globalAlpha = 1;
 
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      drawEnemy(ctx, e);
-    });
+     // --- Power-ups ---
+     powerUpsRef.current.forEach(pu => {
+       drawPowerUp(ctx, pu);
+     });
 
-    // --- Player ---
-    if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
-      drawPlayer(ctx, player);
-    }
+     // --- Bullets ---
+     bulletsRef.current.forEach(b => {
+       ctx.fillStyle = b.color;
+       ctx.shadowColor = b.color;
+       ctx.shadowBlur = 8;
+       ctx.fillRect(b.x, b.y, b.width, b.height);
+       ctx.shadowBlur = 0;
+     });
 
-    // --- HUD ---
-    drawHUD(ctx, W, gd, player);
+     // --- Enemies ---
+     enemiesRef.current.forEach(e => {
+       drawEnemy(ctx, e);
+     });
 
-    // --- Wave indicator ---
-    if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
-      ctx.fillStyle = COLORS.white;
-      ctx.font = 'bold 36px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, H / 2);
-      if (gd.wave > 0 && gd.wave % BOSS_WAVE_INTERVAL === 0) {
-        ctx.fillStyle = COLORS.red;
-        ctx.font = 'bold 24px monospace';
-        ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
-      }
-      ctx.restore();
-    }
+     // --- Player ---
+     if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
+       drawPlayer(ctx, player);
+     }
 
-  }, [gameState]);
+     // --- HUD ---
+     drawHUD(ctx, W, gd, player);
+
+     // --- Wave indicator ---
+     if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
+       ctx.save();
+       ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
+       ctx.fillStyle = COLORS.white;
+       ctx.font = 'bold 36px monospace';
+       ctx.textAlign = 'center';
+       ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, H / 2);
+       if (gd.wave > 0 && gd.wave % BOSS_WAVE_INTERVAL === 0) {
+         ctx.fillStyle = COLORS.red;
+         ctx.font = 'bold 24px monospace';
+         ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
+       }
+       ctx.restore();
+     }
+
+   }, [gameState, drawParallaxLayers]);
 
   function drawStartScreen(ctx: CanvasRenderingContext2D, W: number, H: number) {
     // Logo

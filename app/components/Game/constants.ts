@@ -8,6 +8,40 @@ export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
 export const STAR_COUNT = 150;
 
+import type { ParallaxLayerType } from './types';
+
+// ===== PARALLAX LAYERS =====
+export const PARALLAX_LAYERS: Array<{
+  type: ParallaxLayerType;
+  speedFactor: number;
+  color: string;
+  secondaryColor?: string;
+}> = [
+  {
+    type: 'nebula',
+    speedFactor: 0.05,
+    color: '#1a0033',
+    secondaryColor: '#330066',
+  },
+  {
+    type: 'mountains',
+    speedFactor: 0.15,
+    color: '#0a0a1a',
+    secondaryColor: '#111122',
+  },
+  {
+    type: 'stars',
+    speedFactor: 0.3,
+    color: '#ffffff',
+  },
+  {
+    type: 'cityscape',
+    speedFactor: 0.5,
+    color: '#0a0a15',
+    secondaryColor: '#151525',
+  },
+];
+
 // ===== COLORS =====
 export const COLORS = {
   cyan: '#00ffff',

@@ -96,6 +96,28 @@ export interface Star {
   brightness: number;
 }
 
+export interface ParallaxElement {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  points?: Array<{ x: number; y: number }>;
+  // Optional per-element properties for specific layer types
+  speed?: number;
+  size?: number;
+  brightness?: number;
+}
+
+export type ParallaxLayerType = 'stars' | 'mountains' | 'cityscape' | 'nebula';
+
+export interface ParallaxLayer {
+  type: ParallaxLayerType;
+  speedFactor: number;
+  color: string;
+  secondaryColor?: string;
+  elements: ParallaxElement[];
+}
+
 export interface WaveConfig {
   enemies: Array<{
     type: EnemyType;
