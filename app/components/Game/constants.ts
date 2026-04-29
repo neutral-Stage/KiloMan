@@ -6,7 +6,7 @@ export const POWER_UP_DROP_CHANCE = 0.25;
 export const BOSS_WAVE_INTERVAL = 5;
 export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
-export const STAR_COUNT = 150;
+export const STAR_COUNT = 600;
 
 // ===== CAMERA CONSTANTS =====
 export const CAMERA_SMOOTHING = 0.08;   // Lerp factor (0-1)

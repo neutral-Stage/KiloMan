@@ -20,7 +20,6 @@ import {
   COLORS,
   CAMERA_SMOOTHING,
   CAMERA_OFFSET_Y,
-  CAMERA_DEADZONE_X,
   WORLD_HEIGHT,
 } from './constants';
 
@@ -80,17 +79,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }
 
-   function createDefaultCamera(w: number, h: number): Camera {
-     return {
-       x: 0, y: 0,
-       width: w,
-       height: h,
-       targetX: 0, targetY: 0,
-       smoothing: CAMERA_SMOOTHING,
-     };
-    }
+  function createDefaultCamera(w: number, h: number): Camera {
+    return {
+      x: 0, y: 0,
+      width: w,
+      height: h,
+      targetX: 0, targetY: 0,
+      smoothing: CAMERA_SMOOTHING,
+    };
+  }
 
-   // Initialize stars in world space
+  // Initialize stars in world space
   const initStars = useCallback((w: number, h: number) => {
     const worldW = w;
     const worldH = WORLD_HEIGHT;
@@ -165,23 +164,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }, [gameState, setGameState]);
 
-   // Reset game on state change to playing
-   useEffect(() => {
-     if (gameState === 'playing') {
-       const w = dimensions.width;
-       const h = dimensions.height;
-       playerRef.current = createDefaultPlayer(w / 2, h - 80);
-       bulletsRef.current = [];
-       enemiesRef.current = [];
-       powerUpsRef.current = [];
-       particlesRef.current = [];
-       gameDataRef.current = createDefaultGameData();
-       shootCooldownRef.current = 0;
-       frameRef.current = 0;
-       cameraRef.current = createDefaultCamera(w, h);
-       initStars(w, h);
+  // Reset game on state change to playing
+  useEffect(() => {
+    if (gameState === 'playing') {
+      const w = dimensions.width;
+      const h = dimensions.height;
+      playerRef.current = createDefaultPlayer(w / 2, h - 80);
+      bulletsRef.current = [];
+      enemiesRef.current = [];
+      powerUpsRef.current = [];
+      particlesRef.current = [];
+      gameDataRef.current = createDefaultGameData();
+      shootCooldownRef.current = 0;
+      frameRef.current = 0;
+      cameraRef.current = createDefaultCamera(w, h);
+      initStars(w, h);
      }
-   }, [gameState, dimensions, initStars]);
+  }, [gameState, dimensions, initStars]);
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
@@ -343,34 +342,34 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   }, []);
 
   // ===== UPDATE =====
-   const update = useCallback((dt: number) => {
-     if (gameState !== 'playing') return;
+  const update = useCallback((dt: number) => {
+    if (gameState !== 'playing') return;
 
-     const player = playerRef.current;
-     const keys = keysRef.current;
-     const gd = gameDataRef.current;
-     const W = dimensions.width;
-     const H = dimensions.height;
-     const worldW = dimensions.width;
-     const worldH = WORLD_HEIGHT;
-     const camera = cameraRef.current;
+    const player = playerRef.current;
+    const keys = keysRef.current;
+    const gd = gameDataRef.current;
+    const W = dimensions.width;
+    const H = dimensions.height;
+    const worldW = dimensions.width;
+    const worldH = WORLD_HEIGHT;
+    const camera = cameraRef.current;
 
-     frameRef.current++;
-     player.thrusterFrame++;
+    frameRef.current++;
+    player.thrusterFrame++;
 
-     // Update camera BEFORE player movement clamp (so camera follows)
-     updateCamera();
+    // --- Player Movement ---
+    const moveSpeed = player.speed * (player.powerUps.speedBoost > 0 ? 1.6 : 1) * dt;
+    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= moveSpeed;
+    if (keys['ArrowRight'] || keys['KeyD']) player.x += moveSpeed;
+    if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
+    if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
 
-     // --- Player Movement ---
-     const moveSpeed = player.speed * (player.powerUps.speedBoost > 0 ? 1.6 : 1) * dt;
-     if (keys['ArrowLeft'] || keys['KeyA']) player.x -= moveSpeed;
-     if (keys['ArrowRight'] || keys['KeyD']) player.x += moveSpeed;
-     if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
-     if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
+    // Clamp to camera viewport (player stays on screen)
+    player.x = Math.max(camera.x, Math.min(camera.x + camera.width - player.width, player.x));
+    player.y = Math.max(camera.y + H * 0.3, Math.min(camera.y + H - player.height - 10, player.y));
 
-     // Clamp to camera viewport (player stays on screen)
-     player.x = Math.max(camera.x, Math.min(camera.x + camera.width - player.width, player.x));
-     player.y = Math.max(camera.y + H * 0.3, Math.min(camera.y + H - player.height - 10, player.y));
+    // Update camera AFTER player movement
+    updateCamera();
 
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
@@ -384,8 +383,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (player.powerUps.speedBoost > 0) player.powerUps.speedBoost -= dt;
     if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
-     // --- Stars --- (world-space wrapping)
-     starsRef.current.forEach(star => {
+    // --- Stars --- (world-space wrapping)
+    starsRef.current.forEach(star => {
       star.y += star.speed * dt;
       if (star.y > worldH) {
         star.y = 0;
@@ -432,13 +431,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
           if (e.y < 60) {
             e.y += e.speed * dt;
           } else {
-            e.x = W / 2 - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (W * 0.3);
+            e.x = (camera.x + camera.width / 2) - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (camera.width * 0.3);
           }
           break;
       }
 
-      // Clamp enemy X
-      e.x = Math.max(0, Math.min(W - e.width, e.x));
+      // Clamp enemy X to world bounds (not screen)
+      e.x = Math.max(0, Math.min(worldW - e.width, e.x));
 
       // Enemy shooting
       if (e.shootTimer >= e.shootInterval && e.y > 0) {
@@ -556,7 +555,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.waveTimer += dt;
       const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
       for (const s of toSpawn) {
-        enemiesRef.current.push(createEnemy(s.type, W));
+        enemiesRef.current.push(createEnemy(s.type, W, camera.y));
       }
       gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
 
