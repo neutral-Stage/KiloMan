@@ -1,6 +1,24 @@
-// ===== KILO SHOOTER - Type Definitions =====
+// ===== KILO MAN - Type Definitions =====
 
 export type GameState = 'start' | 'playing' | 'gameover';
+
+// Entity types for platformer
+export type EntityType = 'platform' | 'hazard' | 'goal' | 'start' | 'monster';
+
+export interface LevelEntity {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  type: EntityType;
+  // Visual properties
+  color?: string;
+  // Monster specific
+  patrolRange?: number; // Distance to move back and forth
+  speed?: number;
+  patrolStart?: number; // Initial X position for patrol (runtime state)
+}
 
 export interface Vec2 {
   x: number;
