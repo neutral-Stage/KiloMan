@@ -3,7 +3,8 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData,
+  Particle, Star, GameData, Collectible, CollectibleType, RewardPopup,
+  PlayerProgress, AchievementId, UnlockId, ShipSkin,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
@@ -18,6 +19,14 @@ import {
   STAR_LAYERS,
   STAR_COUNT,
   COLORS,
+  COLLECTIBLE_SPAWN_CHANCE,
+  COIN_VALUE,
+  GEM_VALUE,
+  DIAMOND_VALUE,
+  COIN_SPAWN_WEIGHT,
+  GEM_SPAWN_WEIGHT,
+  ACHIEVEMENTS,
+  UNLOCKS,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -32,48 +41,125 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const lastTimeRef = useRef<number>(0);
   const [dimensions, setDimensions] = React.useState({ width: 800, height: 600 });
 
-  // Game state refs (mutable for game loop)
-  const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
-  const bulletsRef = useRef<Bullet[]>([]);
-  const enemiesRef = useRef<Enemy[]>([]);
-  const powerUpsRef = useRef<PowerUp[]>([]);
-  const particlesRef = useRef<Particle[]>([]);
-  const starsRef = useRef<Star[]>([]);
-  const gameDataRef = useRef<GameData>(createDefaultGameData());
-  const keysRef = useRef<Record<string, boolean>>({});
-  const shootCooldownRef = useRef(0);
-  const frameRef = useRef(0);
-  const audioRef = useRef<AudioEngine | null>(null);
-  const logoRef = useRef<HTMLImageElement | null>(null);
+   // Game state refs (mutable for game loop)
+   const playerProgressRef = useRef<PlayerProgress>(loadPlayerProgress());
+   const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
+   const bulletsRef = useRef<Bullet[]>([]);
+   const enemiesRef = useRef<Enemy[]>([]);
+   const powerUpsRef = useRef<PowerUp[]>([]);
+   const collectiblesRef = useRef<Collectible[]>([]);
+   const particlesRef = useRef<Particle[]>([]);
+   const starsRef = useRef<Star[]>([]);
+   const gameDataRef = useRef<GameData>(createDefaultGameData());
+   const rewardPopupsRef = useRef<RewardPopup[]>([]);
+   const keysRef = useRef<Record<string, boolean>>({});
+   const shootCooldownRef = useRef(0);
+   const frameRef = useRef(0);
+   const audioRef = useRef<AudioEngine | null>(null);
+   const logoRef = useRef<HTMLImageElement | null>(null);
 
-  function createDefaultPlayer(cx: number, cy: number): PlayerShip {
-    return {
-      x: cx - 20, y: cy, width: 40, height: 44,
-      speed: 5, health: 3, maxHealth: 3, lives: 3,
-      invincibleTimer: 0,
-      powerUps: { spreadShot: 0, shield: 0, speedBoost: 0 },
-      thrusterFrame: 0,
-    };
-  }
+   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
+     const pp = playerProgressRef.current;
+     return {
+       x: cx - 20, y: cy, width: 40, height: 44,
+       speed: 5 * (pp.unlocks.find(u => u.id === 'upgrade_speed' && u.purchased) ? 1.2 : 1),
+       health: 3 + (pp.unlocks.find(u => u.id === 'upgrade_health' && u.purchased) ? 1 : 0),
+       maxHealth: 3 + (pp.unlocks.find(u => u.id === 'upgrade_health' && u.purchased) ? 1 : 0),
+       lives: 3,
+       invincibleTimer: 0,
+       powerUps: {
+         spreadShot: pp.unlocks.find(u => u.id === 'upgrade_spread' && u.purchased) ? 300 : 0,
+         shield: pp.unlocks.find(u => u.id === 'upgrade_shield' && u.purchased) ? 300 : 0,
+         speedBoost: 0,
+       },
+       thrusterFrame: 0,
+       shipSkin: (pp.unlocks.find(u => u.type === 'skin' && u.purchased && u.active)?.id as ShipSkin) || 'default',
+       extraMaxHealth: false,
+     };
+   }
 
-  function createDefaultGameData(): GameData {
-    let highScore = 0;
-    if (typeof window !== 'undefined') {
+   function createDefaultGameData(): GameData {
+     let highScore = 0;
+     if (typeof window !== 'undefined') {
+       try {
+         highScore = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
+       } catch {
+         // localStorage may be unavailable in private browsing
+       }
+     }
+     return {
+       score: 0, wave: 0, highScore,
+       waveEnemiesRemaining: 0,
+       waveSpawnQueue: [],
+       waveTimer: 0,
+       betweenWaves: true,
+       betweenWaveTimer: 60,
+     };
+   }
+
+   function createDefaultPlayerProgress(): PlayerProgress {
+     return {
+       totalCoins: 0,
+       totalGems: 0,
+       totalDiamonds: 0,
+       sessionCoins: 0,
+       sessionGems: 0,
+       achievements: Object.values(ACHIEVEMENTS).map(a => ({
+         id: a.id as AchievementId,
+         title: a.title,
+         description: a.description,
+         unlocked: false,
+         progress: 0,
+         target: a.target,
+       })),
+       unlocks: Object.values(UNLOCKS).map(u => ({
+         id: u.id as UnlockId,
+         name: u.name,
+         description: u.description,
+         cost: u.cost,
+         type: u.type,
+         purchased: false,
+         active: false,
+       })),
+       wavesWithoutDamage: 0,
+       currentNoDamageWave: 0,
+       enemiesDefeated: 0,
+       bossKills: 0,
+       totalShots: 0,
+       shotsHit: 0,
+       shieldBlocks: 0,
+     };
+   }
+
+    function loadPlayerProgress(): PlayerProgress {
+      if (typeof window === 'undefined') return createDefaultPlayerProgress();
       try {
-        highScore = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
+        const saved = localStorage.getItem('kiloShooterProgress');
+        if (saved) {
+          const parsed = JSON.parse(saved) as PlayerProgress;
+          // Ensure all required fields exist
+          const defaults = createDefaultPlayerProgress();
+          return {
+            ...defaults,
+            ...parsed,
+            achievements: parsed.achievements || defaults.achievements,
+            unlocks: parsed.unlocks || defaults.unlocks,
+          };
+        }
       } catch {
-        // localStorage may be unavailable in private browsing
+        // localStorage may be unavailable or corrupted
       }
+      return createDefaultPlayerProgress();
     }
-    return {
-      score: 0, wave: 0, highScore,
-      waveEnemiesRemaining: 0,
-      waveSpawnQueue: [],
-      waveTimer: 0,
-      betweenWaves: true,
-      betweenWaveTimer: 60,
-    };
-  }
+
+    const savePlayerProgress = useCallback((pp: PlayerProgress): void => {
+      if (typeof window === 'undefined') return;
+      try {
+        localStorage.setItem('kiloShooterProgress', JSON.stringify(pp));
+      } catch {
+        // localStorage may be unavailable
+      }
+    }, []);
 
   // Initialize stars
   const initStars = useCallback((w: number, h: number) => {
@@ -111,107 +197,120 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     img.onload = () => { logoRef.current = img; };
   }, []);
 
-  // Audio engine
-  useEffect(() => {
-    audioRef.current = new AudioEngine();
-  }, []);
+    // Audio engine
+    useEffect(() => {
+      audioRef.current = new AudioEngine();
+    }, []);
 
-  // Input listeners
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      keysRef.current[e.code] = true;
-      // Unlock AudioContext on first user gesture
-      audioRef.current?.unlock();
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
-        e.preventDefault();
-      }
-      // Start game on Enter
-      if (e.code === 'Enter' && gameState === 'start') {
-        setGameState('playing');
-      }
-      // Restart on Enter from gameover
-      if (e.code === 'Enter' && gameState === 'gameover') {
-        setGameState('playing');
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      keysRef.current[e.code] = false;
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [gameState, setGameState]);
+    // Reset game on state change to playing
+   useEffect(() => {
+     if (gameState === 'playing') {
+       const w = dimensions.width;
+       const h = dimensions.height;
+       playerRef.current = createDefaultPlayer(w / 2, h - 80);
+       bulletsRef.current = [];
+       enemiesRef.current = [];
+       powerUpsRef.current = [];
+       collectiblesRef.current = [];
+       particlesRef.current = [];
+       rewardPopupsRef.current = [];
+       gameDataRef.current = createDefaultGameData();
+       // Reset session tracking
+       playerProgressRef.current.sessionCoins = 0;
+       playerProgressRef.current.sessionGems = 0;
+       playerProgressRef.current.wavesWithoutDamage = 0;
+       playerProgressRef.current.currentNoDamageWave = 0;
+       // Note: totalCoins, totalGems, achievements persist across sessions
+       shootCooldownRef.current = 0;
+       frameRef.current = 0;
+       initStars(w, h);
+     }
+   }, [gameState, dimensions, initStars]);
 
-  // Reset game on state change to playing
-  useEffect(() => {
-    if (gameState === 'playing') {
-      const w = dimensions.width;
-      const h = dimensions.height;
-      playerRef.current = createDefaultPlayer(w / 2, h - 80);
-      bulletsRef.current = [];
-      enemiesRef.current = [];
-      powerUpsRef.current = [];
-      particlesRef.current = [];
-      gameDataRef.current = createDefaultGameData();
-      shootCooldownRef.current = 0;
-      frameRef.current = 0;
-      initStars(w, h);
-    }
-  }, [gameState, dimensions, initStars]);
+   // ===== SPAWN HELPERS =====
+   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
+     for (let i = 0; i < count; i++) {
+       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
+       const spd = speed * (0.5 + Math.random());
+       particlesRef.current.push({
+         x, y,
+         vx: Math.cos(angle) * spd,
+         vy: Math.sin(angle) * spd,
+         life: 30 + Math.random() * 20,
+         maxLife: 50,
+         color,
+         size: 2 + Math.random() * 3,
+       });
+     }
+   }, []);
 
-  // ===== SPAWN HELPERS =====
-  const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
-    for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
-      const spd = speed * (0.5 + Math.random());
-      particlesRef.current.push({
-        x, y,
-        vx: Math.cos(angle) * spd,
-        vy: Math.sin(angle) * spd,
-        life: 30 + Math.random() * 20,
-        maxLife: 50,
-        color,
-        size: 2 + Math.random() * 3,
-      });
-    }
-  }, []);
+   const spawnCollectible = useCallback((x: number, y: number) => {
+     if (Math.random() > COLLECTIBLE_SPAWN_CHANCE) return;
+     const rand = Math.random();
+     let type: CollectibleType;
+     let value: number;
+     if (rand < COIN_SPAWN_WEIGHT) {
+       type = 'coin';
+       value = COIN_VALUE;
+     } else if (rand < COIN_SPAWN_WEIGHT + GEM_SPAWN_WEIGHT) {
+       type = 'gem';
+       value = GEM_VALUE;
+     } else {
+       type = 'diamond';
+       value = DIAMOND_VALUE;
+     }
+     collectiblesRef.current.push({
+       x: x - 8, y, width: 16, height: 16,
+       type, value,
+       vx: (Math.random() - 0.5) * 1,
+       vy: 1 + Math.random() * 0.5,
+     });
+   }, []);
 
-  const spawnPowerUp = useCallback((x: number, y: number) => {
-    if (Math.random() > POWER_UP_DROP_CHANCE) return;
-    const types: PowerUpType[] = ['spread', 'shield', 'speed', 'life'];
-    const type = types[Math.floor(Math.random() * types.length)];
-    powerUpsRef.current.push({
-      x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
-    });
-  }, []);
+   const spawnRewardPopup = useCallback((x: number, y: number, text: string, color: string) => {
+     rewardPopupsRef.current.push({
+       x, y,
+       text, color,
+       life: 60,
+       maxLife: 60,
+       vy: -1.5,
+     });
+   }, []);
 
-  const playerShoot = useCallback((player: PlayerShip, w: number) => {
-    if (shootCooldownRef.current > 0) return;
-    shootCooldownRef.current = PLAYER_SHOOT_COOLDOWN;
-    audioRef.current?.playLaser();
+   const spawnPowerUp = useCallback((x: number, y: number) => {
+     if (Math.random() > POWER_UP_DROP_CHANCE) return;
+     const types: PowerUpType[] = ['spread', 'shield', 'speed', 'life'];
+     const type = types[Math.floor(Math.random() * types.length)];
+     powerUpsRef.current.push({
+       x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
+     });
+   }, []);
 
-    const cx = player.x + player.width / 2;
-    const bulletBase = {
-      y: player.y - 10, width: 4, height: 12, damage: 1,
-      color: COLORS.cyan, isPlayerBullet: true, vx: 0, vy: -10,
-    };
+   const playerShoot = useCallback((player: PlayerShip, w: number) => {
+     if (shootCooldownRef.current > 0) return;
+     shootCooldownRef.current = PLAYER_SHOOT_COOLDOWN;
+     audioRef.current?.playLaser();
+     playerProgressRef.current.totalShots++;
 
-    if (player.powerUps.spreadShot > 0) {
-      bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
-      bulletsRef.current.push({ ...bulletBase, x: cx - 12, vx: -2 });
-      bulletsRef.current.push({ ...bulletBase, x: cx + 8, vx: 2 });
-    } else {
-      bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
-    }
+     const cx = player.x + player.width / 2;
+     const bulletBase = {
+       y: player.y - 10, width: 4, height: 12, damage: 1,
+       color: COLORS.cyan, isPlayerBullet: true, vx: 0, vy: -10,
+     };
 
-    // Keep bullets in bounds
-    bulletsRef.current = bulletsRef.current.filter(b =>
-      b.x > -20 && b.x < w + 20
-    );
-  }, []);
+     if (player.powerUps.spreadShot > 0) {
+       bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
+       bulletsRef.current.push({ ...bulletBase, x: cx - 12, vx: -2 });
+       bulletsRef.current.push({ ...bulletBase, x: cx + 8, vx: 2 });
+     } else {
+       bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
+     }
+
+     // Keep bullets in bounds
+     bulletsRef.current = bulletsRef.current.filter(b =>
+       b.x > -20 && b.x < w + 20
+     );
+   }, []);
 
   const enemyShoot = useCallback((enemy: Enemy) => {
     const cx = enemy.x + enemy.width / 2;
@@ -235,41 +334,206 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     }
   }, []);
 
-  const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
-    player.lives--;
-    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
-    audioRef.current?.playExplosion();
+   const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
+     player.lives--;
+     spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
+     audioRef.current?.playExplosion();
 
-    if (player.lives <= 0) {
-      // Game over
-      const gd = gameDataRef.current;
-      if (gd.score > gd.highScore) {
-        gd.highScore = gd.score;
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem('kiloShooterHighScore', gd.highScore.toString());
-          } catch {
-            // localStorage may be unavailable in private browsing
+     // Reset no-damage tracking
+     playerProgressRef.current.wavesWithoutDamage = 0;
+     playerProgressRef.current.currentNoDamageWave = 0;
+
+     if (player.lives <= 0) {
+       // Game over - save progress
+       savePlayerProgress(playerProgressRef.current);
+       const gd = gameDataRef.current;
+       if (gd.score > gd.highScore) {
+         gd.highScore = gd.score;
+         if (typeof window !== 'undefined') {
+           try {
+             localStorage.setItem('kiloShooterHighScore', gd.highScore.toString());
+           } catch {
+             // localStorage may be unavailable in private browsing
+           }
+         }
+       }
+       setGameState('gameover');
+     } else {
+       player.invincibleTimer = INVINCIBILITY_FRAMES;
+       player.x = W / 2 - player.width / 2;
+       player.y = H - 80;
+       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
+     }
+   }, [spawnParticles, setGameState, savePlayerProgress]);
+
+   const applyPowerUp = useCallback((player: PlayerShip, type: PowerUpType) => {
+     switch (type) {
+       case 'spread': player.powerUps.spreadShot = POWER_UP_DURATION; break;
+       case 'shield': player.powerUps.shield = POWER_UP_DURATION; break;
+       case 'speed': player.powerUps.speedBoost = POWER_UP_DURATION; break;
+       case 'life': player.lives = Math.min(player.lives + 1, 5); break;
+     }
+   }, []);
+
+   // ===== ACHIEVEMENT & REWARD SYSTEM =====
+   const checkAchievements = useCallback((pp: PlayerProgress, gd: GameData): AchievementId[] => {
+     const newlyUnlocked: AchievementId[] = [];
+     for (const ach of pp.achievements) {
+       if (ach.unlocked) continue;
+       let progress = ach.progress;
+       switch (ach.id) {
+         case 'first_coin':
+           progress = pp.totalCoins;
+           break;
+         case 'coin_collector_100':
+           progress = pp.totalCoins;
+           break;
+         case 'coin_collector_500':
+           progress = pp.totalCoins;
+           break;
+         case 'coin_collector_1000':
+           progress = pp.totalCoins;
+           break;
+         case 'gem_hunter_10':
+           progress = pp.totalGems;
+           break;
+         case 'gem_hunter_50':
+           progress = pp.totalGems;
+           break;
+         case 'wave_5_no_damage':
+           progress = pp.currentNoDamageWave;
+           break;
+         case 'wave_10_no_damage':
+           progress = pp.currentNoDamageWave;
+           break;
+         case 'first_blood':
+           progress = pp.enemiesDefeated;
+           break;
+         case 'sharpshooter':
+           progress = pp.shotsHit;
+           break;
+         case 'boss_killer':
+           progress = pp.bossKills;
+           break;
+         case 'shield_master':
+           progress = pp.shieldBlocks;
+           break;
+         case 'survivor_100wave':
+           progress = gd.wave;
+           break;
+       }
+       ach.progress = progress;
+       if (progress >= ach.target && !ach.unlocked) {
+         ach.unlocked = true;
+         ach.unlockedAt = frameRef.current;
+         newlyUnlocked.push(ach.id);
+       }
+     }
+     return newlyUnlocked;
+   }, []);
+
+   const grantAchievementReward = useCallback((achId: AchievementId, pp: PlayerProgress): number => {
+     const achDef = ACHIEVEMENTS[achId];
+     if (!achDef) return 0;
+     // Award coins as reward
+     pp.totalCoins += achDef.reward;
+     pp.sessionCoins += achDef.reward;
+     return achDef.reward;
+   }, []);
+
+   const purchaseUnlock = useCallback((unlockId: UnlockId, pp: PlayerProgress): boolean => {
+     const unlock = pp.unlocks.find(u => u.id === unlockId);
+     if (!unlock || unlock.purchased || pp.totalCoins < unlock.cost) return false;
+     pp.totalCoins -= unlock.cost;
+     pp.sessionCoins -= unlock.cost;
+     unlock.purchased = true;
+     if (unlock.type === 'skin') {
+       // Deactivate other skins
+       pp.unlocks.forEach(u => {
+         if (u.type === 'skin' && u.id !== unlockId) {
+           u.active = false;
+         }
+       });
+       unlock.active = true;
+     }
+     return true;
+   }, []);
+
+   const applyUnlockEffects = useCallback((player: PlayerShip, pp: PlayerProgress) => {
+     // Apply skin
+     const activeSkin = pp.unlocks.find(u => u.type === 'skin' && u.active);
+     if (activeSkin) {
+       player.shipSkin = activeSkin.id as ShipSkin;
+     }
+     // Apply upgrade effects
+     const healthUpgrade = pp.unlocks.find(u => u.id === 'upgrade_health' && u.purchased);
+     if (healthUpgrade && !player.extraMaxHealth) {
+       player.maxHealth += 1;
+       player.health += 1;
+       player.extraMaxHealth = true;
+     }
+     if (pp.unlocks.find(u => u.id === 'upgrade_spread' && u.purchased)) {
+       player.powerUps.spreadShot = 300; // 5 seconds
+     }
+     if (pp.unlocks.find(u => u.id === 'upgrade_shield' && u.purchased)) {
+       player.powerUps.shield = 300; // 5 seconds
+     }
+     if (pp.unlocks.find(u => u.id === 'upgrade_speed' && u.purchased)) {
+       player.speed = 5 * 1.2; // +20%
+     }
+   }, []);
+
+  // Input listeners (moved after unlock functions)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      keysRef.current[e.code] = true;
+      // Unlock AudioContext on first user gesture
+      audioRef.current?.unlock();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+        e.preventDefault();
+      }
+      // Start game on Enter
+      if (e.code === 'Enter' && gameState === 'start') {
+        setGameState('playing');
+      }
+      // Restart on Enter from gameover
+      if (e.code === 'Enter' && gameState === 'gameover') {
+        setGameState('playing');
+      }
+      // Open shop on S from start
+      if (e.code === 'KeyS' && gameState === 'start') {
+        setGameState('shop');
+      }
+      // Return to start from shop on Escape
+      if (e.code === 'Escape' && gameState === 'shop') {
+        setGameState('start');
+      }
+      // Purchase unlocks in shop with number keys 1-8
+      if (gameState === 'shop' && e.code >= 'Digit1' && e.code <= 'Digit8') {
+        const index = parseInt(e.code.replace('Digit', '')) - 1;
+        const pp = playerProgressRef.current;
+        if (index >= 0 && index < pp.unlocks.length) {
+          const unlock = pp.unlocks[index];
+          if (!unlock.purchased && pp.totalCoins >= unlock.cost) {
+            if (purchaseUnlock(unlock.id, pp)) {
+              // Apply effects immediately to current player
+              applyUnlockEffects(playerRef.current, pp);
+              savePlayerProgress(pp);
+            }
           }
         }
       }
-      setGameState('gameover');
-    } else {
-      player.invincibleTimer = INVINCIBILITY_FRAMES;
-      player.x = W / 2 - player.width / 2;
-      player.y = H - 80;
-      player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
-    }
-  }, [spawnParticles, setGameState]);
-
-  const applyPowerUp = useCallback((player: PlayerShip, type: PowerUpType) => {
-    switch (type) {
-      case 'spread': player.powerUps.spreadShot = POWER_UP_DURATION; break;
-      case 'shield': player.powerUps.shield = POWER_UP_DURATION; break;
-      case 'speed': player.powerUps.speedBoost = POWER_UP_DURATION; break;
-      case 'life': player.lives = Math.min(player.lives + 1, 5); break;
-    }
-  }, []);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      keysRef.current[e.code] = false;
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [gameState, setGameState, purchaseUnlock, applyUnlockEffects, savePlayerProgress]);
 
   const startWave = useCallback((gd: GameData) => {
     const wave = generateWave(gd.wave);
@@ -289,14 +553,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   }, []);
 
   // ===== UPDATE =====
-  const update = useCallback((dt: number) => {
-    if (gameState !== 'playing') return;
+   const update = useCallback((dt: number) => {
+     if (gameState !== 'playing') return;
 
-    const player = playerRef.current;
-    const keys = keysRef.current;
-    const gd = gameDataRef.current;
-    const W = dimensions.width;
-    const H = dimensions.height;
+     const player = playerRef.current;
+     const keys = keysRef.current;
+     const gd = gameDataRef.current;
+     const pp = playerProgressRef.current;
+     const W = dimensions.width;
+     const H = dimensions.height;
 
     frameRef.current++;
     player.thrusterFrame++;
@@ -389,9 +654,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
     enemiesRef.current = enemiesRef.current.filter(e => e.y <= H + 100);
 
-    // --- Power-ups ---
-    powerUpsRef.current.forEach(p => { p.y += p.vy * dt; });
-    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < H + 30);
+     // --- Power-ups ---
+     powerUpsRef.current.forEach(p => { p.y += p.vy * dt; });
+     powerUpsRef.current = powerUpsRef.current.filter(p => p.y < H + 30);
+
+     // --- Collectibles ---
+     collectiblesRef.current.forEach(c => {
+       c.x += c.vx * dt;
+       c.y += c.vy * dt;
+       // Collectible drifts slightly horizontally
+       c.vx += (Math.random() - 0.5) * 0.02;
+     });
+     collectiblesRef.current = collectiblesRef.current.filter(c => c.y < H + 30);
+
+     // --- Reward Popups ---
+     rewardPopupsRef.current.forEach(rp => {
+       rp.y += rp.vy * dt;
+       rp.life -= dt;
+     });
+     rewardPopupsRef.current = rewardPopupsRef.current.filter(rp => rp.life > 0);
 
     // --- Particles ---
     particlesRef.current.forEach(p => {
@@ -402,116 +683,174 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
     particlesRef.current = particlesRef.current.filter(p => p.life > 0);
 
-    // --- Collision: Player bullets vs enemies ---
-    const playerBullets = bulletsRef.current.filter(b => b.isPlayerBullet);
-    const enemyBullets = bulletsRef.current.filter(b => !b.isPlayerBullet);
+     // --- Collision: Player bullets vs enemies ---
+     const playerBullets = bulletsRef.current.filter(b => b.isPlayerBullet);
+     const enemyBullets = bulletsRef.current.filter(b => !b.isPlayerBullet);
 
-    for (const bullet of playerBullets) {
-      for (const enemy of enemiesRef.current) {
-        if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
-          enemy.x, enemy.y, enemy.width, enemy.height)) {
-          enemy.health -= bullet.damage;
-          bullet.destroyed = true;
+     for (const bullet of playerBullets) {
+       for (const enemy of enemiesRef.current) {
+         if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
+           enemy.x, enemy.y, enemy.width, enemy.height)) {
+           enemy.health -= bullet.damage;
+           bullet.destroyed = true;
+           pp.shotsHit++;
 
-          if (enemy.health <= 0) {
-            // Enemy destroyed
-            gd.score += enemy.points;
-            gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
-            spawnParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2,
-              enemy.isBoss ? 40 : 15, enemy.color, enemy.isBoss ? 5 : 3);
-            audioRef.current?.playExplosion();
-            spawnPowerUp(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
-            enemy.destroyed = true;
-          } else {
-            // Hit flash
-            spawnParticles(bullet.x, bullet.y, 3, COLORS.white, 1);
-            audioRef.current?.playHit();
-          }
-          break;
-        }
-      }
-    }
-    enemiesRef.current = enemiesRef.current.filter(e => !e.destroyed);
+           if (enemy.health <= 0) {
+             // Enemy destroyed
+             gd.score += enemy.points;
+             gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
+             spawnParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2,
+               enemy.isBoss ? 40 : 15, enemy.color, enemy.isBoss ? 5 : 3);
+             audioRef.current?.playExplosion();
+             spawnPowerUp(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+             spawnCollectible(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+             enemy.destroyed = true;
+             // Track stats
+             pp.enemiesDefeated++;
+             if (enemy.isBoss) {
+               pp.bossKills++;
+             }
+           } else {
+             // Hit flash
+             spawnParticles(bullet.x, bullet.y, 3, COLORS.white, 1);
+             audioRef.current?.playHit();
+           }
+           break;
+         }
+       }
+     }
+     enemiesRef.current = enemiesRef.current.filter(e => !e.destroyed);
 
-    // --- Collision: Enemy bullets vs player ---
-    if (player.invincibleTimer <= 0) {
-      for (const bullet of enemyBullets) {
-        if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
-          player.x, player.y, player.width, player.height)) {
-          bullet.destroyed = true;
-          if (player.powerUps.shield > 0) {
-            player.powerUps.shield = 0;
-            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
-            audioRef.current?.playHit();
-          } else {
-            playerHit(player, W, H);
-          }
-          break;
-        }
-      }
-    }
+     // --- Collision: Enemy bullets vs player ---
+     if (player.invincibleTimer <= 0) {
+       for (const bullet of enemyBullets) {
+         if (rectsOverlap(bullet.x, bullet.y, bullet.width, bullet.height,
+           player.x, player.y, player.width, player.height)) {
+           bullet.destroyed = true;
+           if (player.powerUps.shield > 0) {
+             player.powerUps.shield = 0;
+             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
+             audioRef.current?.playHit();
+             pp.shieldBlocks++;
+           } else {
+             playerHit(player, W, H);
+           }
+           break;
+         }
+       }
+     }
 
-    // --- Collision: Enemies vs player ---
-    if (player.invincibleTimer <= 0) {
-      for (const enemy of enemiesRef.current) {
-        if (rectsOverlap(player.x, player.y, player.width, player.height,
-          enemy.x, enemy.y, enemy.width, enemy.height)) {
-          if (player.powerUps.shield > 0) {
-            player.powerUps.shield = 0;
-            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
-          } else {
-            playerHit(player, W, H);
-          }
-          break;
-        }
-      }
-    }
+     // --- Collision: Enemies vs player ---
+     if (player.invincibleTimer <= 0) {
+       for (const enemy of enemiesRef.current) {
+         if (rectsOverlap(player.x, player.y, player.width, player.height,
+           enemy.x, enemy.y, enemy.width, enemy.height)) {
+           if (player.powerUps.shield > 0) {
+             player.powerUps.shield = 0;
+             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
+             pp.shieldBlocks++;
+           } else {
+             playerHit(player, W, H);
+           }
+           break;
+         }
+       }
+     }
 
-    // --- Collision: Player vs power-ups ---
-    for (let i = powerUpsRef.current.length - 1; i >= 0; i--) {
-      const pu = powerUpsRef.current[i];
-      if (rectsOverlap(player.x, player.y, player.width, player.height,
-        pu.x, pu.y, pu.width, pu.height)) {
-        applyPowerUp(player, pu.type);
-        audioRef.current?.playPowerUp();
-        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.green, 2);
-        powerUpsRef.current.splice(i, 1);
-      }
-    }
+      // --- Collision: Player vs collectibles ---
+     for (let i = collectiblesRef.current.length - 1; i >= 0; i--) {
+       const col = collectiblesRef.current[i];
+       if (rectsOverlap(player.x, player.y, player.width, player.height,
+         col.x, col.y, col.width, col.height)) {
+         // Collect!
+         let rewardText = '';
+         let rewardColor = '';
+         if (col.type === 'coin') {
+           pp.totalCoins += col.value;
+           pp.sessionCoins += col.value;
+           rewardText = `+${col.value} COIN`;
+           rewardColor = COLORS.yellow;
+         } else if (col.type === 'gem') {
+           pp.totalGems += col.value;
+           pp.sessionGems += col.value;
+           rewardText = `+${col.value} GEM`;
+           rewardColor = COLORS.magenta;
+         } else if (col.type === 'diamond') {
+           pp.totalDiamonds += col.value;
+           rewardText = `+${col.value} DIAMOND`;
+           rewardColor = COLORS.cyan;
+         }
+         spawnRewardPopup(col.x, col.y, rewardText, rewardColor);
+         spawnParticles(col.x + col.width/2, col.y + col.height/2, 8, rewardColor, 2);
+         audioRef.current?.playPowerUp();
+         collectiblesRef.current.splice(i, 1);
+       }
+     }
 
-    // --- Wave management ---
-    if (gd.betweenWaves) {
-      gd.betweenWaveTimer -= dt;
-      if (gd.betweenWaveTimer <= 0) {
-        gd.betweenWaves = false;
-        startWave(gd);
-      }
-    } else {
-      // Spawn from queue
-      gd.waveTimer += dt;
-      const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
-      for (const s of toSpawn) {
-        enemiesRef.current.push(createEnemy(s.type, W));
-      }
-      gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
+     // --- Collision: Player vs power-ups ---
+     for (let i = powerUpsRef.current.length - 1; i >= 0; i--) {
+       const pu = powerUpsRef.current[i];
+       if (rectsOverlap(player.x, player.y, player.width, player.height,
+         pu.x, pu.y, pu.width, pu.height)) {
+         applyPowerUp(player, pu.type);
+         audioRef.current?.playPowerUp();
+         spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.green, 2);
+         powerUpsRef.current.splice(i, 1);
+       }
+     }
 
-      // Check wave complete
-      if (gd.waveSpawnQueue.length === 0 && gd.waveEnemiesRemaining <= 0 && enemiesRef.current.length === 0) {
-        gd.wave++;
-        gd.betweenWaves = true;
-        gd.betweenWaveTimer = BETWEEN_WAVE_DELAY;
-      }
-    }
+     // --- Wave management & no-damage tracking ---
+     if (gd.betweenWaves) {
+       gd.betweenWaveTimer -= dt;
+       if (gd.betweenWaveTimer <= 0) {
+         gd.betweenWaves = false;
+         startWave(gd);
+       }
+     } else {
+       // Spawn from queue
+       gd.waveTimer += dt;
+       const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
+       for (const s of toSpawn) {
+         enemiesRef.current.push(createEnemy(s.type, W));
+       }
+       gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
 
-    // --- Update high score ---
-    if (gd.score > gd.highScore) {
-      gd.highScore = gd.score;
-    }
+       // Check wave complete
+       if (gd.waveSpawnQueue.length === 0 && gd.waveEnemiesRemaining <= 0 && enemiesRef.current.length === 0) {
+         // Wave completed - track no-damage runs
+         if (player.health === player.maxHealth) {
+           pp.wavesWithoutDamage++;
+           pp.currentNoDamageWave++;
+         } else {
+           pp.currentNoDamageWave = 0;
+         }
+         gd.wave++;
+         gd.betweenWaves = true;
+         gd.betweenWaveTimer = BETWEEN_WAVE_DELAY;
+       }
+     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
+     // --- Update high score ---
+     if (gd.score > gd.highScore) {
+       gd.highScore = gd.score;
+     }
 
-  // ===== DRAWING =====
-  const draw = useCallback((ctx: CanvasRenderingContext2D) => {
+     // --- Check achievements ---
+     const newAchievements = checkAchievements(pp, gd);
+     for (const achId of newAchievements) {
+       const reward = grantAchievementReward(achId, pp);
+       spawnRewardPopup(W / 2, H / 2 - 100, `ACHIEVEMENT: ${ACHIEVEMENTS[achId].title}! +${reward}`, COLORS.yellow);
+     }
+
+     // --- Periodic save ---
+     if (frameRef.current % 300 === 0) { // Every ~5 seconds at 60fps
+       savePlayerProgress(pp);
+     }
+
+    }, [gameState, dimensions, spawnParticles, spawnPowerUp, spawnCollectible, spawnRewardPopup, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave, checkAchievements, grantAchievementReward, savePlayerProgress]);
+
+   // ===== DRAWING =====
+   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
     const W = ctx.canvas.width;
     const H = ctx.canvas.height;
     const player = playerRef.current;
@@ -529,15 +868,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
     ctx.globalAlpha = 1;
 
-    if (gameState === 'start') {
-      drawStartScreen(ctx, W, H);
-      return;
-    }
+     if (gameState === 'start') {
+       drawStartScreen(ctx, W, H);
+       return;
+     }
 
-    if (gameState === 'gameover') {
-      drawGameOverScreen(ctx, W, H, gd);
-      return;
-    }
+     if (gameState === 'shop') {
+       drawShopScreen(ctx, W, H);
+       return;
+     }
+
+     if (gameState === 'gameover') {
+       drawGameOverScreen(ctx, W, H, gd);
+       return;
+     }
 
     // --- Particles (behind everything) ---
     particlesRef.current.forEach(p => {
@@ -549,10 +893,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
     ctx.globalAlpha = 1;
 
-    // --- Power-ups ---
-    powerUpsRef.current.forEach(pu => {
-      drawPowerUp(ctx, pu);
-    });
+     // --- Collectibles ---
+     collectiblesRef.current.forEach(c => {
+       drawCollectible(ctx, c);
+     });
+
+     // --- Power-ups ---
+     powerUpsRef.current.forEach(pu => {
+       drawPowerUp(ctx, pu);
+     });
 
     // --- Bullets ---
     bulletsRef.current.forEach(b => {
@@ -589,12 +938,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         ctx.font = 'bold 24px monospace';
         ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
       }
-      ctx.restore();
-    }
+       ctx.restore();
+     }
+   }, [gameState]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  }, [gameState]);
-
-  function drawStartScreen(ctx: CanvasRenderingContext2D, W: number, H: number) {
+   function drawStartScreen(ctx: CanvasRenderingContext2D, W: number, H: number) {
     // Logo
     if (logoRef.current) {
       const logo = logoRef.current;
@@ -624,10 +972,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.fillText('Press ENTER to start', W / 2, H / 2 + 30);
     ctx.globalAlpha = 1;
 
-    // Controls
-    ctx.fillStyle = '#888888';
-    ctx.font = `${Math.min(16, W * 0.02)}px monospace`;
-    ctx.fillText('WASD / Arrow Keys: Move  •  Space: Shoot  •  Auto-fire enabled', W / 2, H / 2 + 80);
+     // Controls
+     ctx.fillStyle = '#888888';
+     ctx.font = `${Math.min(16, W * 0.02)}px monospace`;
+     ctx.fillText('WASD / Arrow Keys: Move  •  Space: Shoot  •  Auto-fire enabled', W / 2, H / 2 + 80);
+
+     // Shop hint
+     ctx.fillStyle = COLORS.yellow;
+     ctx.font = `${Math.min(16, W * 0.02)}px monospace`;
+     ctx.fillText('Press S to open Shop', W / 2, H / 2 + 110);
 
     // High score
     let hs = 0;
@@ -646,106 +999,188 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.restore();
   }
 
-  function drawGameOverScreen(ctx: CanvasRenderingContext2D, W: number, H: number, gd: GameData) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, W, H);
+   function drawGameOverScreen(ctx: CanvasRenderingContext2D, W: number, H: number, gd: GameData) {
+     ctx.save();
+     ctx.fillStyle = 'rgba(0,0,0,0.7)';
+     ctx.fillRect(0, 0, W, H);
 
-    ctx.fillStyle = COLORS.red;
-    ctx.shadowColor = COLORS.red;
-    ctx.shadowBlur = 15;
-    ctx.font = `bold ${Math.min(64, W * 0.07)}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', W / 2, H / 2 - 60);
-    ctx.shadowBlur = 0;
+     ctx.fillStyle = COLORS.red;
+     ctx.shadowColor = COLORS.red;
+     ctx.shadowBlur = 15;
+     ctx.font = `bold ${Math.min(64, W * 0.07)}px monospace`;
+     ctx.textAlign = 'center';
+     ctx.fillText('GAME OVER', W / 2, H / 2 - 60);
+     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `${Math.min(28, W * 0.035)}px monospace`;
-    ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, W / 2, H / 2);
+     ctx.fillStyle = COLORS.white;
+     ctx.font = `${Math.min(28, W * 0.035)}px monospace`;
+     ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, W / 2, H / 2);
 
-    ctx.fillStyle = COLORS.yellow;
-    ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
-    ctx.fillText(`HIGH SCORE: ${gd.highScore.toLocaleString()}`, W / 2, H / 2 + 40);
+     ctx.fillStyle = COLORS.yellow;
+     ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
+     ctx.fillText(`HIGH SCORE: ${gd.highScore.toLocaleString()}`, W / 2, H / 2 + 40);
 
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `${Math.min(18, W * 0.022)}px monospace`;
-    ctx.fillText(`Wave Reached: ${gd.wave + 1}`, W / 2, H / 2 + 75);
+     ctx.fillStyle = COLORS.white;
+     ctx.font = `${Math.min(18, W * 0.022)}px monospace`;
+     ctx.fillText(`Wave Reached: ${gd.wave + 1}`, W / 2, H / 2 + 75);
 
-    ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.004) * 0.4;
-    ctx.fillStyle = COLORS.cyan;
-    ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
-    ctx.fillText('Press ENTER to restart', W / 2, H / 2 + 120);
-    ctx.restore();
-  }
+     ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.004) * 0.4;
+     ctx.fillStyle = COLORS.cyan;
+     ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
+     ctx.fillText('Press ENTER to restart', W / 2, H / 2 + 120);
+     ctx.restore();
+   }
 
-  function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip) {
-    const cx = p.x + p.width / 2;
-    const cy = p.y + p.height / 2;
+   function drawShopScreen(ctx: CanvasRenderingContext2D, W: number, H: number) {
+     ctx.save();
+     // Semi-transparent overlay
+     ctx.fillStyle = 'rgba(0, 0, 20, 0.9)';
+     ctx.fillRect(0, 0, W, H);
 
-    ctx.save();
+     const pp = playerProgressRef.current;
 
-    // Thruster flame
-    const flicker = Math.sin(p.thrusterFrame * 0.5) * 4;
-    const thrusterGrad = ctx.createLinearGradient(cx, p.y + p.height, cx, p.y + p.height + 20 + flicker);
-    thrusterGrad.addColorStop(0, COLORS.cyan);
-    thrusterGrad.addColorStop(0.5, COLORS.orange);
-    thrusterGrad.addColorStop(1, 'transparent');
-    ctx.fillStyle = thrusterGrad;
-    ctx.beginPath();
-    ctx.moveTo(cx - 8, p.y + p.height);
-    ctx.lineTo(cx, p.y + p.height + 18 + flicker);
-    ctx.lineTo(cx + 8, p.y + p.height);
-    ctx.fill();
+     // Title
+     ctx.fillStyle = COLORS.yellow;
+     ctx.shadowColor = COLORS.yellow;
+     ctx.shadowBlur = 20;
+     ctx.font = `bold ${Math.min(48, W * 0.06)}px monospace`;
+     ctx.textAlign = 'center';
+     ctx.fillText('SHOP', W / 2, 60);
+     ctx.shadowBlur = 0;
 
-    // Ship body - geometric sci-fi
-    ctx.fillStyle = COLORS.playerShip;
-    ctx.beginPath();
-    ctx.moveTo(cx, p.y);                          // nose
-    ctx.lineTo(cx + 18, p.y + 30);                // right wing start
-    ctx.lineTo(cx + 22, p.y + 40);                // right wing tip
-    ctx.lineTo(cx + 8, p.y + 35);                 // right inner
-    ctx.lineTo(cx + 6, p.y + p.height);           // right bottom
-    ctx.lineTo(cx - 6, p.y + p.height);           // left bottom
-    ctx.lineTo(cx - 8, p.y + 35);                 // left inner
-    ctx.lineTo(cx - 22, p.y + 40);                // left wing tip
-    ctx.lineTo(cx - 18, p.y + 30);                // left wing start
-    ctx.closePath();
-    ctx.fill();
+     // Currency
+     ctx.fillStyle = COLORS.white;
+     ctx.font = `${Math.min(24, W * 0.03)}px monospace`;
+     ctx.fillText(`Coins: ${pp.totalCoins.toLocaleString()}  |  Gems: ${pp.totalGems.toLocaleString()}  |  Diamonds: ${pp.totalDiamonds.toLocaleString()}`, W / 2, 100);
 
-    // Cockpit
-    ctx.fillStyle = COLORS.cyan;
-    ctx.shadowColor = COLORS.cyan;
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.ellipse(cx, p.y + 16, 4, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+     // Unlocks list
+     const startY = 150;
+     const itemHeight = 50;
+     pp.unlocks.forEach((unlock, index) => {
+       const y = startY + index * itemHeight;
+       // Background for each item
+       ctx.fillStyle = unlock.purchased ? 'rgba(0, 255, 0, 0.2)' : (pp.totalCoins >= unlock.cost ? 'rgba(0, 100, 255, 0.2)' : 'rgba(100, 100, 100, 0.2)');
+       ctx.fillRect(W * 0.1, y - 20, W * 0.8, 35);
+       // Text
+       ctx.fillStyle = unlock.purchased ? COLORS.green : (pp.totalCoins >= unlock.cost ? COLORS.cyan : COLORS.white);
+       ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
+       ctx.textAlign = 'left';
+       const status = unlock.purchased ? '[PURCHASED]' : `${unlock.cost} coins`;
+       ctx.fillText(`${index + 1}. ${unlock.name} - ${unlock.description} (${status})`, W * 0.15, y);
+       if (unlock.active) {
+         ctx.fillStyle = COLORS.yellow;
+         ctx.fillText('(ACTIVE)', W * 0.75, y);
+       }
+     });
 
-    // Wing accents
-    ctx.strokeStyle = COLORS.playerAccent;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, p.y + 28);
-    ctx.lineTo(cx - 20, p.y + 38);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx + 14, p.y + 28);
-    ctx.lineTo(cx + 20, p.y + 38);
-    ctx.stroke();
+     // Instructions
+     ctx.fillStyle = COLORS.white;
+     ctx.font = `${Math.min(18, W * 0.022)}px monospace`;
+     ctx.textAlign = 'center';
+     ctx.fillText('Press 1-8 to purchase unlocks. Press ESC to return.', W / 2, H - 50);
 
-    // Shield visual
-    if (p.powerUps.shield > 0) {
-      ctx.strokeStyle = COLORS.cyan;
-      ctx.globalAlpha = 0.4 + Math.sin(frameRef.current * 0.1) * 0.2;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, p.width * 0.8, p.height * 0.7, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
+     ctx.restore();
+   }
 
-    ctx.restore();
-  }
+   function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip) {
+     const cx = p.x + p.width / 2;
+     const cy = p.y + p.height / 2;
+
+     ctx.save();
+
+     // Skin-based color scheme
+     let primaryColor: string;
+     let accentColor: string;
+     let glowColor: string;
+     switch (p.shipSkin) {
+       case 'gold':
+         primaryColor = '#ffd700';
+         accentColor = '#ffaa00';
+         glowColor = '#ffaa00';
+         break;
+       case 'neon':
+         primaryColor = '#ff00ff';
+         accentColor = '#00ffff';
+         glowColor = '#ff00ff';
+         break;
+       case 'stealth':
+         primaryColor = '#333333';
+         accentColor = '#666666';
+         glowColor = '#00ff00';
+         break;
+       case 'vintage':
+         primaryColor = '#ff6600';
+         accentColor = '#ffff00';
+         glowColor = '#ff8800';
+         break;
+       default:
+         primaryColor = COLORS.playerShip;
+         accentColor = COLORS.playerAccent;
+         glowColor = COLORS.cyan;
+     }
+
+     // Thruster flame
+     const flicker = Math.sin(p.thrusterFrame * 0.5) * 4;
+     const thrusterGrad = ctx.createLinearGradient(cx, p.y + p.height, cx, p.y + p.height + 20 + flicker);
+     thrusterGrad.addColorStop(0, glowColor);
+     thrusterGrad.addColorStop(0.5, accentColor);
+     thrusterGrad.addColorStop(1, 'transparent');
+     ctx.fillStyle = thrusterGrad;
+     ctx.beginPath();
+     ctx.moveTo(cx - 8, p.y + p.height);
+     ctx.lineTo(cx, p.y + p.height + 18 + flicker);
+     ctx.lineTo(cx + 8, p.y + p.height);
+     ctx.fill();
+
+     // Ship body - geometric sci-fi
+     ctx.fillStyle = primaryColor;
+     ctx.beginPath();
+     ctx.moveTo(cx, p.y);                          // nose
+     ctx.lineTo(cx + 18, p.y + 30);                // right wing start
+     ctx.lineTo(cx + 22, p.y + 40);                // right wing tip
+     ctx.lineTo(cx + 8, p.y + 35);                 // right inner
+     ctx.lineTo(cx + 6, p.y + p.height);           // right bottom
+     ctx.lineTo(cx - 6, p.y + p.height);           // left bottom
+     ctx.lineTo(cx - 8, p.y + 35);                 // left inner
+     ctx.lineTo(cx - 22, p.y + 40);                // left wing tip
+     ctx.lineTo(cx - 18, p.y + 30);                // left wing start
+     ctx.closePath();
+     ctx.fill();
+
+     // Cockpit
+     ctx.fillStyle = glowColor;
+     ctx.shadowColor = glowColor;
+     ctx.shadowBlur = 6;
+     ctx.beginPath();
+     ctx.ellipse(cx, p.y + 16, 4, 8, 0, 0, Math.PI * 2);
+     ctx.fill();
+     ctx.shadowBlur = 0;
+
+     // Wing accents
+     ctx.strokeStyle = accentColor;
+     ctx.lineWidth = 1.5;
+     ctx.beginPath();
+     ctx.moveTo(cx - 14, p.y + 28);
+     ctx.lineTo(cx - 20, p.y + 38);
+     ctx.stroke();
+     ctx.beginPath();
+     ctx.moveTo(cx + 14, p.y + 28);
+     ctx.lineTo(cx + 20, p.y + 38);
+     ctx.stroke();
+
+      // Shield visual
+      if (p.powerUps.shield > 0) {
+        ctx.strokeStyle = glowColor;
+        ctx.globalAlpha = 0.4 + Math.sin(frameRef.current * 0.1) * 0.2;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, p.width * 0.8, p.height * 0.7, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+     ctx.restore();
+   }
 
   function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
     const cx = e.x + e.width / 2;
@@ -865,101 +1300,176 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.restore();
   }
 
-  function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
-    const cx = pu.x + pu.width / 2;
-    const cy = pu.y + pu.height / 2;
-    const pulse = Math.sin(frameRef.current * 0.1) * 2;
+   function drawCollectible(ctx: CanvasRenderingContext2D, c: Collectible) {
+     const cx = c.x + c.width / 2;
+     const cy = c.y + c.height / 2;
+     const pulse = Math.sin(frameRef.current * 0.15) * 1;
 
-    ctx.save();
+     ctx.save();
+     let color: string;
+     let symbol: string;
+     switch (c.type) {
+       case 'coin':
+         color = COLORS.yellow;
+         symbol = '$';
+         break;
+       case 'gem':
+         color = COLORS.magenta;
+         symbol = '◆';
+         break;
+       case 'diamond':
+         color = COLORS.cyan;
+         symbol = '♦';
+         break;
+     }
 
-    let color: string;
-    let label: string;
-    switch (pu.type) {
-      case 'spread': color = COLORS.magenta; label = 'S'; break;
-      case 'shield': color = COLORS.cyan; label = '◊'; break;
-      case 'speed': color = COLORS.green; label = '»'; break;
-      case 'life': color = COLORS.red; label = '+'; break;
+     ctx.fillStyle = color;
+     ctx.shadowColor = color;
+     ctx.shadowBlur = 6 + pulse;
+     ctx.font = `bold ${12 + pulse * 0.5}px monospace`;
+     ctx.textAlign = 'center';
+     ctx.textBaseline = 'middle';
+     ctx.fillText(symbol, cx, cy);
+     ctx.shadowBlur = 0;
+     ctx.restore();
+   }
+
+   function drawRewardPopup(ctx: CanvasRenderingContext2D, rp: RewardPopup) {
+     const alpha = Math.max(0, rp.life / rp.maxLife);
+     ctx.save();
+     ctx.globalAlpha = alpha;
+     ctx.fillStyle = rp.color;
+     ctx.font = 'bold 16px monospace';
+     ctx.textAlign = 'center';
+     ctx.shadowColor = rp.color;
+     ctx.shadowBlur = 8;
+     ctx.fillText(rp.text, rp.x, rp.y);
+     ctx.restore();
+   }
+
+   function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
+     const cx = pu.x + pu.width / 2;
+     const cy = pu.y + pu.height / 2;
+     const pulse = Math.sin(frameRef.current * 0.1) * 2;
+
+     ctx.save();
+
+     let color: string;
+     let label: string;
+     switch (pu.type) {
+       case 'spread': color = COLORS.magenta; label = 'S'; break;
+       case 'shield': color = COLORS.cyan; label = '◊'; break;
+       case 'speed': color = COLORS.green; label = '»'; break;
+       case 'life': color = COLORS.red; label = '+'; break;
+     }
+
+     ctx.strokeStyle = color;
+     ctx.shadowColor = color;
+     ctx.shadowBlur = 8 + pulse;
+     ctx.lineWidth = 2;
+     ctx.beginPath();
+     ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
+     ctx.stroke();
+     ctx.shadowBlur = 0;
+
+     ctx.fillStyle = color;
+     ctx.font = 'bold 14px monospace';
+     ctx.textAlign = 'center';
+     ctx.textBaseline = 'middle';
+     ctx.fillText(label, cx, cy);
+
+     ctx.restore();
+   }
+
+   function drawHUD(ctx: CanvasRenderingContext2D, W: number, gd: GameData, player: PlayerShip) {
+     ctx.save();
+     const pad = 15;
+     const fontSize = Math.min(18, W * 0.022);
+     const pp = playerProgressRef.current;
+
+     // Score
+     ctx.fillStyle = COLORS.white;
+     ctx.font = `bold ${fontSize}px monospace`;
+     ctx.textAlign = 'left';
+     ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, pad, pad + fontSize);
+
+     // High score
+     ctx.fillStyle = COLORS.yellow;
+     ctx.font = `${fontSize * 0.8}px monospace`;
+     ctx.fillText(`HI: ${gd.highScore.toLocaleString()}`, pad, pad + fontSize * 2.2);
+
+     // Wave
+     ctx.fillStyle = COLORS.cyan;
+     ctx.font = `bold ${fontSize}px monospace`;
+     ctx.textAlign = 'center';
+     ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, pad + fontSize);
+
+     // Currency (coins and gems)
+     ctx.textAlign = 'left';
+     ctx.fillStyle = COLORS.yellow;
+     ctx.fillText(`🪙 ${pp.totalCoins.toLocaleString()}`, pad, pad + fontSize * 3.4);
+     ctx.fillStyle = COLORS.magenta;
+     ctx.fillText(`💎 ${pp.totalGems.toLocaleString()}`, pad + 100, pad + fontSize * 3.4);
+
+     // Lives
+     ctx.textAlign = 'right';
+     ctx.fillStyle = COLORS.white;
+     ctx.font = `bold ${fontSize}px monospace`;
+     const livesText = '♥'.repeat(player.lives);
+     ctx.fillText(livesText, W - pad, pad + fontSize);
+
+     // Health bar
+     const barW = 100;
+     const barH = 8;
+     const barX = W - pad - barW;
+     const barY = pad + fontSize + 10;
+     ctx.fillStyle = '#333';
+     ctx.fillRect(barX, barY, barW, barH);
+     ctx.fillStyle = player.health > 1 ? COLORS.green : COLORS.red;
+     ctx.fillRect(barX, barY, barW * (player.health / player.maxHealth), barH);
+
+     // Active power-ups indicators
+     let puY = barY + barH + 10;
+     const puFontSize = fontSize * 0.7;
+     ctx.font = `${puFontSize}px monospace`;
+     ctx.textAlign = 'right';
+     if (player.powerUps.spreadShot > 0) {
+       ctx.fillStyle = COLORS.magenta;
+       ctx.fillText('SPREAD', W - pad, puY + puFontSize);
+       puY += puFontSize + 4;
+     }
+     if (player.powerUps.shield > 0) {
+       ctx.fillStyle = COLORS.cyan;
+       ctx.fillText('SHIELD', W - pad, puY + puFontSize);
+       puY += puFontSize + 4;
+     }
+     if (player.powerUps.speedBoost > 0) {
+       ctx.fillStyle = COLORS.green;
+       ctx.fillText('SPEED+', W - pad, puY + puFontSize);
+     }
+
+     // Ship skin indicator
+     if (player.shipSkin !== 'default') {
+       ctx.fillStyle = COLORS.orange;
+       ctx.font = `${puFontSize}px monospace`;
+       ctx.fillText(`SHIP: ${player.shipSkin.toUpperCase()}`, W - pad, puY + puFontSize + 16);
+     }
+
+     // No-damage streak
+     if (pp.currentNoDamageWave > 0) {
+       ctx.fillStyle = COLORS.green;
+       ctx.font = `${puFontSize}px monospace`;
+       ctx.textAlign = 'left';
+       ctx.fillText(`NO DMG: ${pp.currentNoDamageWave} wave(s)`, pad, puY + 12);
+     }
+
+     // Draw reward popups
+     rewardPopupsRef.current.forEach(rp => {
+       drawRewardPopup(ctx, rp);
+     });
+
+      ctx.restore();
     }
-
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8 + pulse;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.fillStyle = color;
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, cx, cy);
-
-    ctx.restore();
-  }
-
-  function drawHUD(ctx: CanvasRenderingContext2D, W: number, gd: GameData, player: PlayerShip) {
-    ctx.save();
-    const pad = 15;
-    const fontSize = Math.min(18, W * 0.022);
-
-    // Score
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.textAlign = 'left';
-    ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, pad, pad + fontSize);
-
-    // High score
-    ctx.fillStyle = COLORS.yellow;
-    ctx.font = `${fontSize * 0.8}px monospace`;
-    ctx.fillText(`HI: ${gd.highScore.toLocaleString()}`, pad, pad + fontSize * 2.2);
-
-    // Wave
-    ctx.fillStyle = COLORS.cyan;
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, pad + fontSize);
-
-    // Lives
-    ctx.textAlign = 'right';
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `bold ${fontSize}px monospace`;
-    const livesText = '♥'.repeat(player.lives);
-    ctx.fillText(livesText, W - pad, pad + fontSize);
-
-    // Health bar
-    const barW = 100;
-    const barH = 8;
-    const barX = W - pad - barW;
-    const barY = pad + fontSize + 10;
-    ctx.fillStyle = '#333';
-    ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = player.health > 1 ? COLORS.green : COLORS.red;
-    ctx.fillRect(barX, barY, barW * (player.health / player.maxHealth), barH);
-
-    // Active power-ups indicators
-    let puY = barY + barH + 10;
-    const puFontSize = fontSize * 0.7;
-    ctx.font = `${puFontSize}px monospace`;
-    ctx.textAlign = 'right';
-    if (player.powerUps.spreadShot > 0) {
-      ctx.fillStyle = COLORS.magenta;
-      ctx.fillText('SPREAD', W - pad, puY + puFontSize);
-      puY += puFontSize + 4;
-    }
-    if (player.powerUps.shield > 0) {
-      ctx.fillStyle = COLORS.cyan;
-      ctx.fillText('SHIELD', W - pad, puY + puFontSize);
-      puY += puFontSize + 4;
-    }
-    if (player.powerUps.speedBoost > 0) {
-      ctx.fillStyle = COLORS.green;
-      ctx.fillText('SPEED+', W - pad, puY + puFontSize);
-    }
-
-    ctx.restore();
-  }
 
   // ===== GAME LOOP =====
   const loop = useCallback((timestamp: number) => {
@@ -981,11 +1491,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     requestRef.current = requestAnimationFrame(loop);
   }, [update, draw]);
 
-  useEffect(() => {
-    lastTimeRef.current = 0;
-    requestRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(requestRef.current);
-  }, [loop]);
+    // Game loop effect
+    useEffect(() => {
+      lastTimeRef.current = 0;
+      requestRef.current = requestAnimationFrame(loop);
+      return () => {
+        cancelAnimationFrame(requestRef.current);
+        // Save progress on cleanup (ref access is safe)
+        savePlayerProgress(playerProgressRef.current);
+      };
+    }, [loop, savePlayerProgress]);
 
   return (
     <canvas

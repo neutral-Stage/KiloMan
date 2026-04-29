@@ -1,6 +1,6 @@
 // ===== KILO SHOOTER - Type Definitions =====
 
-export type GameState = 'start' | 'playing' | 'gameover';
+export type GameState = 'start' | 'playing' | 'gameover' | 'shop';
 
 export interface Vec2 {
   x: number;
@@ -19,7 +19,13 @@ export interface PlayerShip {
   invincibleTimer: number; // frames of invincibility remaining
   powerUps: ActivePowerUps;
   thrusterFrame: number;
+  // Cosmetic unlocks
+  shipSkin: ShipSkin;
+  // Extra max health from upgrade
+  extraMaxHealth: boolean;
 }
+
+export type ShipSkin = 'default' | 'gold' | 'neon' | 'stealth' | 'vintage';
 
 export interface ActivePowerUps {
   spreadShot: number;   // frames remaining
@@ -75,6 +81,92 @@ export interface PowerUp {
   height: number;
   type: PowerUpType;
   vy: number;
+}
+
+// ===== REWARD SYSTEM TYPES =====
+export type CollectibleType = 'coin' | 'gem' | 'diamond';
+
+export interface Collectible {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: CollectibleType;
+  vx: number;
+  vy: number;
+  value: number;
+}
+
+export interface RewardPopup {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  life: number;
+  maxLife: number;
+  vy: number;
+}
+
+export type AchievementId =
+  | 'first_coin'
+  | 'coin_collector_100'
+  | 'coin_collector_500'
+  | 'coin_collector_1000'
+  | 'gem_hunter_10'
+  | 'gem_hunter_50'
+  | 'wave_5_no_damage'
+  | 'wave_10_no_damage'
+  | 'first_blood'
+  | 'sharpshooter'
+  | 'boss_killer'
+  | 'shield_master'
+  | 'survivor_100wave';
+
+export type UnlockId =
+  | 'skin_gold'
+  | 'skin_neon'
+  | 'skin_stealth'
+  | 'skin_vintage'
+  | 'upgrade_health'
+  | 'upgrade_spread'
+  | 'upgrade_shield'
+  | 'upgrade_speed';
+
+export interface Achievement {
+  id: AchievementId;
+  title: string;
+  description: string;
+  unlocked: boolean;
+  unlockedAt?: number; // frame count or timestamp
+  progress: number;
+  target: number;
+}
+
+export interface Unlock {
+  id: UnlockId;
+  name: string;
+  description: string;
+  cost: number;
+  type: 'skin' | 'upgrade';
+  purchased: boolean;
+  active: boolean; // for skins
+}
+
+export interface PlayerProgress {
+  totalCoins: number;
+  totalGems: number;
+  totalDiamonds: number;
+  sessionCoins: number;
+  sessionGems: number;
+  achievements: Achievement[];
+  unlocks: Unlock[];
+  wavesWithoutDamage: number;
+  currentNoDamageWave: number;
+  enemiesDefeated: number;
+  bossKills: number;
+  totalShots: number;
+  shotsHit: number;
+  shieldBlocks: number; // number of hits blocked by shield
 }
 
 export interface Particle {
