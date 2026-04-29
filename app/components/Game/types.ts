@@ -96,6 +96,14 @@ export interface Star {
   brightness: number;
 }
 
+export interface Platform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+}
+
 export interface WaveConfig {
   enemies: Array<{
     type: EnemyType;

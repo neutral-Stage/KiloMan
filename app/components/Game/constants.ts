@@ -24,4 +24,7 @@ export const COLORS = {
   enemySwooper: '#ff00ff',
   enemyTank: '#888888',
   boss: '#ff0044',
+  platform: '#4a4a5a',
+  platformTop: '#7a7a8a',
+  platformShadow: 'rgba(0, 0, 0, 0.5)',
 };
