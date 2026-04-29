@@ -18,6 +18,14 @@ import {
   STAR_LAYERS,
   STAR_COUNT,
   COLORS,
+  PLAYER_ACCELERATION,
+  PLAYER_MAX_SPEED,
+  PLAYER_DECELERATION,
+  COAST_DRAG,
+  MOVEMENT_SNAP_THRESHOLD,
+  PLAYER_SPEED_BOOST_MULTIPLIER,
+  DRIFT_PARTICLE_SPEED_THRESHOLD,
+  LANDING_VERTICAL_SPEED_THRESHOLD,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -49,7 +57,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
       x: cx - 20, y: cy, width: 40, height: 44,
-      speed: 5, health: 3, maxHealth: 3, lives: 3,
+      speed: PLAYER_MAX_SPEED, vx: 0, vy: 0,
+      health: 3, maxHealth: 3, lives: 3,
       invincibleTimer: 0,
       powerUps: { spreadShot: 0, shield: 0, speedBoost: 0 },
       thrusterFrame: 0,
@@ -301,16 +310,128 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     frameRef.current++;
     player.thrusterFrame++;
 
-    // --- Player Movement ---
-    const moveSpeed = player.speed * (player.powerUps.speedBoost > 0 ? 1.6 : 1) * dt;
-    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= moveSpeed;
-    if (keys['ArrowRight'] || keys['KeyD']) player.x += moveSpeed;
-    if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
-    if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
+    // --- Player Movement (physics-based) ---
+    const effectiveMaxSpeed = PLAYER_MAX_SPEED * (player.powerUps.speedBoost > 0 ? PLAYER_SPEED_BOOST_MULTIPLIER : 1);
+    const left = keys['ArrowLeft'] || keys['KeyA'];
+    const right = keys['ArrowRight'] || keys['KeyD'];
+    const up = keys['ArrowUp'] || keys['KeyW'];
+    const down = keys['ArrowDown'] || keys['KeyS'];
 
-    // Clamp to screen
+    // Horizontal acceleration
+    if (left) {
+      if (player.vx <= 0) {
+        player.vx -= PLAYER_ACCELERATION * dt;
+      } else {
+        player.vx -= PLAYER_DECELERATION * dt;
+      }
+    } else if (right) {
+      if (player.vx >= 0) {
+        player.vx += PLAYER_ACCELERATION * dt;
+      } else {
+        player.vx += PLAYER_DECELERATION * dt;
+      }
+    } else {
+      player.vx *= COAST_DRAG;
+      if (Math.abs(player.vx) < MOVEMENT_SNAP_THRESHOLD) player.vx = 0;
+    }
+
+    // Vertical acceleration
+    if (up) {
+      if (player.vy <= 0) {
+        player.vy -= PLAYER_ACCELERATION * dt;
+      } else {
+        player.vy -= PLAYER_DECELERATION * dt;
+      }
+    } else if (down) {
+      if (player.vy >= 0) {
+        player.vy += PLAYER_ACCELERATION * dt;
+      } else {
+        player.vy += PLAYER_DECELERATION * dt;
+      }
+    } else {
+      player.vy *= COAST_DRAG;
+      if (Math.abs(player.vy) < MOVEMENT_SNAP_THRESHOLD) player.vy = 0;
+    }
+
+    // Clamp velocity to max speed
+    player.vx = Math.max(-effectiveMaxSpeed, Math.min(effectiveMaxSpeed, player.vx));
+    player.vy = Math.max(-effectiveMaxSpeed, Math.min(effectiveMaxSpeed, player.vy));
+
+    // Update position
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
+
+    // --- Clamp to screen bounds ---
     player.x = Math.max(0, Math.min(W - player.width, player.x));
-    player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
+    const bottomLimit = H - player.height - 10;
+    if (player.y > bottomLimit) {
+      const impactVy = player.vy;
+      player.y = bottomLimit;
+      player.vy = 0;
+      if (impactVy > LANDING_VERTICAL_SPEED_THRESHOLD) {
+        const dustX = player.x + player.width / 2;
+        const dustY = player.y + player.height;
+        const dustCount = Math.min(12, Math.floor(impactVy * 6));
+        for (let i = 0; i < dustCount; i++) {
+          const angle = Math.PI + (Math.random() - 0.5) * Math.PI;
+          const spd = Math.random() * impactVy * 0.5;
+          particlesRef.current.push({
+            x: dustX + (Math.random() - 0.5) * player.width,
+            y: dustY,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd,
+            life: 20 + Math.random() * 15,
+            maxLife: 35,
+            color: '#888888',
+            size: 2 + Math.random() * 2,
+          });
+        }
+        audioRef.current?.playLanding();
+      }
+    } else if (player.y < H * 0.3) {
+      player.y = H * 0.3;
+      player.vy = 0;
+    }
+
+    // --- Thrust particles during acceleration ---
+    if (left || right || up || down) {
+      const thrustX = player.x + player.width / 2;
+      const thrustY = player.y + player.height;
+      const count = 1 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < count; i++) {
+        const angle = Math.PI / 2 + (Math.random() - 0.5) * 0.8;
+        const speed = 2 + Math.random() * 2;
+        particlesRef.current.push({
+          x: thrustX + (Math.random() - 0.5) * 6,
+          y: thrustY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 15 + Math.random() * 10,
+          maxLife: 25,
+          color: Math.random() > 0.3 ? COLORS.orange : COLORS.cyan,
+          size: 2 + Math.random() * 2,
+        });
+      }
+    } else {
+      // --- Drift particles when coasting at high speed ---
+      const currentSpeed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+      if (currentSpeed > DRIFT_PARTICLE_SPEED_THRESHOLD) {
+        const driftX = player.x + player.width / 2;
+        const driftY = player.y + player.height;
+        if (Math.random() > 0.5) {
+          particlesRef.current.push({
+            x: driftX + (Math.random() - 0.5) * 8,
+            y: driftY,
+            vx: (Math.random() - 0.5) * 1,
+            vy: Math.random() * 1,
+            life: 30 + Math.random() * 20,
+            maxLife: 50,
+            color: '#aaaaaa',
+            size: 1 + Math.random() * 1.5,
+          });
+        }
+      }
+    }
 
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;

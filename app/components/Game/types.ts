@@ -12,7 +12,9 @@ export interface PlayerShip {
   y: number;
   width: number;
   height: number;
-  speed: number;
+  speed: number; // base max speed
+  vx: number;   // horizontal velocity
+  vy: number;   // vertical velocity
   health: number;
   maxHealth: number;
   lives: number;

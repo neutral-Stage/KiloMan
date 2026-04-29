@@ -8,6 +8,19 @@ export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
 export const STAR_COUNT = 150;
 
+// ===== MOVEMENT PHYSICS =====
+export const PLAYER_ACCELERATION = 0.18;
+export const PLAYER_MAX_SPEED = 3.2;
+export const PLAYER_DECELERATION = 0.86;
+export const COAST_DRAG = 0.95;
+export const MOVEMENT_SNAP_THRESHOLD = 0.05;
+export const PLAYER_SPEED_BOOST_MULTIPLIER = 1.4;
+export const DRIFT_PARTICLE_SPEED_THRESHOLD = 1.5;
+
+// ===== LANDING DETECTION =====
+export const LANDING_VERTICAL_SPEED_THRESHOLD = 0.5;
+export const LANDING_CHECK_INTERVAL = 100; // milliseconds
+
 // ===== COLORS =====
 export const COLORS = {
   cyan: '#00ffff',
