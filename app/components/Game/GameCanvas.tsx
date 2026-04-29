@@ -3,11 +3,12 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData,
+  Particle, Star, GameData, LevelEntity, EntityType,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
 import { rectsOverlap } from './collision';
+import { levelEntities, levelConfig } from './levelData';
 import {
   PLAYER_SHOOT_COOLDOWN,
   INVINCIBILITY_FRAMES,
@@ -32,19 +33,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const lastTimeRef = useRef<number>(0);
   const [dimensions, setDimensions] = React.useState({ width: 800, height: 600 });
 
-  // Game state refs (mutable for game loop)
-  const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
-  const bulletsRef = useRef<Bullet[]>([]);
-  const enemiesRef = useRef<Enemy[]>([]);
-  const powerUpsRef = useRef<PowerUp[]>([]);
-  const particlesRef = useRef<Particle[]>([]);
-  const starsRef = useRef<Star[]>([]);
-  const gameDataRef = useRef<GameData>(createDefaultGameData());
-  const keysRef = useRef<Record<string, boolean>>({});
-  const shootCooldownRef = useRef(0);
-  const frameRef = useRef(0);
-  const audioRef = useRef<AudioEngine | null>(null);
-  const logoRef = useRef<HTMLImageElement | null>(null);
+   // Game state refs (mutable for game loop)
+   const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
+   const bulletsRef = useRef<Bullet[]>([]);
+   const enemiesRef = useRef<Enemy[]>([]);
+   const powerUpsRef = useRef<PowerUp[]>([]);
+   const particlesRef = useRef<Particle[]>([]);
+   const starsRef = useRef<Star[]>([]);
+   const monstersRef = useRef<LevelEntity[]>([]);
+   const gameDataRef = useRef<GameData>(createDefaultGameData());
+   const keysRef = useRef<Record<string, boolean>>({});
+   const shootCooldownRef = useRef(0);
+   const frameRef = useRef(0);
+   const audioRef = useRef<AudioEngine | null>(null);
+   const logoRef = useRef<HTMLImageElement | null>(null);
 
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
@@ -145,22 +147,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }, [gameState, setGameState]);
 
-  // Reset game on state change to playing
-  useEffect(() => {
-    if (gameState === 'playing') {
-      const w = dimensions.width;
-      const h = dimensions.height;
-      playerRef.current = createDefaultPlayer(w / 2, h - 80);
-      bulletsRef.current = [];
-      enemiesRef.current = [];
-      powerUpsRef.current = [];
-      particlesRef.current = [];
-      gameDataRef.current = createDefaultGameData();
-      shootCooldownRef.current = 0;
-      frameRef.current = 0;
-      initStars(w, h);
-    }
-  }, [gameState, dimensions, initStars]);
+   // Reset game on state change to playing
+   useEffect(() => {
+     if (gameState === 'playing') {
+       const w = dimensions.width;
+       const h = dimensions.height;
+       playerRef.current = createDefaultPlayer(levelConfig.playerStartX, levelConfig.playerStartY);
+       bulletsRef.current = [];
+       enemiesRef.current = [];
+       powerUpsRef.current = [];
+       particlesRef.current = [];
+       monstersRef.current = levelEntities.filter(entity => entity.type === 'monster');
+       gameDataRef.current = createDefaultGameData();
+       shootCooldownRef.current = 0;
+       frameRef.current = 0;
+       initStars(w, h);
+     }
+   }, [gameState, dimensions, initStars]);
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
@@ -333,54 +336,80 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       }
     });
 
-    // --- Bullets ---
-    bulletsRef.current.forEach(b => {
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-    });
-    bulletsRef.current = bulletsRef.current.filter(b =>
-      !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
-    );
+     // --- Bullets ---
+     bulletsRef.current.forEach(b => {
+       b.x += b.vx * dt;
+       b.y += b.vy * dt;
+     });
+     bulletsRef.current = bulletsRef.current.filter(b =>
+       !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
+     );
 
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      e.patternTimer += dt;
-      e.shootTimer += dt;
+     // --- Enemies ---
+     enemiesRef.current.forEach(e => {
+       e.patternTimer += dt;
+       e.shootTimer += dt;
 
-      switch (e.pattern) {
-        case 'straight':
-          e.y += e.speed * dt;
-          break;
-        case 'zigzag':
-          e.y += e.speed * dt;
-          e.x = e.startX + Math.sin(e.patternTimer * 0.05) * e.patternAmplitude;
-          break;
-        case 'swoop':
-          e.y += e.speed * dt;
-          e.x = e.startX + Math.sin(e.patternTimer * 0.03) * e.patternAmplitude;
-          if (e.patternTimer > 60 && e.patternTimer < 120) {
-            e.y += e.speed * 2 * dt; // dive
-          }
-          break;
-        case 'boss':
-          // Boss moves to center-top then oscillates
-          if (e.y < 60) {
-            e.y += e.speed * dt;
-          } else {
-            e.x = W / 2 - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (W * 0.3);
-          }
-          break;
-      }
+       switch (e.pattern) {
+         case 'straight':
+           e.y += e.speed * dt;
+           break;
+         case 'zigzag':
+           e.y += e.speed * dt;
+           e.x = e.startX + Math.sin(e.patternTimer * 0.05) * e.patternAmplitude;
+           break;
+         case 'swoop':
+           e.y += e.speed * dt;
+           e.x = e.startX + Math.sin(e.patternTimer * 0.03) * e.patternAmplitude;
+           if (e.patternTimer > 60 && e.patternTimer < 120) {
+             e.y += e.speed * 2 * dt; // dive
+           }
+           break;
+         case 'boss':
+           // Boss moves to center-top then oscillates
+           if (e.y < 60) {
+             e.y += e.speed * dt;
+           } else {
+             e.x = W / 2 - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (W * 0.3);
+           }
+           break;
+       }
 
-      // Clamp enemy X
-      e.x = Math.max(0, Math.min(W - e.width, e.x));
+       // Clamp enemy X
+       e.x = Math.max(0, Math.min(W - e.width, e.x));
 
-      // Enemy shooting
-      if (e.shootTimer >= e.shootInterval && e.y > 0) {
-        e.shootTimer = 0;
-        enemyShoot(e);
-      }
-    });
+       // Enemy shooting
+       if (e.shootTimer >= e.shootInterval && e.y > 0) {
+         e.shootTimer = 0;
+         enemyShoot(e);
+       }
+     });
+
+     // --- Monsters (patrol behavior) ---
+     monstersRef.current.forEach(monster => {
+       // Initialize patrol start position if not set
+       if (monster.patrolStart === undefined) {
+         monster.patrolStart = monster.x;
+       }
+       
+       // Patrol logic: move back and forth within patrolRange
+       monster.x += monster.speed * dt;
+       
+       // Reverse direction if we've gone too far from patrol start
+       const distanceFromStart = Math.abs(monster.x - monster.patrolStart);
+       if (distanceFromStart > monster.patrolRange) {
+         monster.speed = -monster.speed; // Reverse direction
+         // Clamp position to stay within bounds
+         if (monster.x > monster.patrolStart + monster.patrolRange) {
+           monster.x = monster.patrolStart + monster.patrolRange;
+         } else if (monster.x < monster.patrolStart - monster.patrolRange) {
+           monster.x = monster.patrolStart - monster.patrolRange;
+         }
+       }
+       
+       // Keep monster within world bounds (optional)
+       monster.x = Math.max(0, Math.min(levelConfig.levelWidth - monster.w, monster.x));
+     });
 
     // Remove off-screen enemies
     const offScreenEnemies = enemiesRef.current.filter(e => e.y > H + 100);
@@ -451,21 +480,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       }
     }
 
-    // --- Collision: Enemies vs player ---
-    if (player.invincibleTimer <= 0) {
-      for (const enemy of enemiesRef.current) {
-        if (rectsOverlap(player.x, player.y, player.width, player.height,
-          enemy.x, enemy.y, enemy.width, enemy.height)) {
-          if (player.powerUps.shield > 0) {
-            player.powerUps.shield = 0;
-            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
-          } else {
-            playerHit(player, W, H);
-          }
-          break;
-        }
-      }
-    }
+     // --- Collision: Enemies vs player ---
+     if (player.invincibleTimer <= 0) {
+       for (const enemy of enemiesRef.current) {
+         if (rectsOverlap(player.x, player.y, player.width, player.height,
+           enemy.x, enemy.y, enemy.width, enemy.height)) {
+           if (player.powerUps.shield > 0) {
+             player.powerUps.shield = 0;
+             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
+           } else {
+             playerHit(player, W, H);
+           }
+           break;
+         }
+       }
+     }
+
+     // --- Collision: Monsters vs player ---
+     if (player.invincibleTimer <= 0) {
+       for (const monster of monstersRef.current) {
+         if (rectsOverlap(player.x, player.y, player.width, player.height,
+           monster.x, monster.y, monster.w, monster.h)) {
+           // Player touched monster -> Game Over
+           playerHit(player, W, H);
+           break;
+         }
+       }
+     }
 
     // --- Collision: Player vs power-ups ---
     for (let i = powerUpsRef.current.length - 1; i >= 0; i--) {
@@ -563,10 +604,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       ctx.shadowBlur = 0;
     });
 
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      drawEnemy(ctx, e);
-    });
+     // --- Enemies ---
+     enemiesRef.current.forEach(e => {
+       drawEnemy(ctx, e);
+     });
+
+     // --- Monsters ---
+     monstersRef.current.forEach(monster => {
+       drawMonster(ctx, monster);
+     });
 
     // --- Player ---
     if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
@@ -865,39 +911,83 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.restore();
   }
 
-  function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
-    const cx = pu.x + pu.width / 2;
-    const cy = pu.y + pu.height / 2;
-    const pulse = Math.sin(frameRef.current * 0.1) * 2;
+   function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
+     const cx = pu.x + pu.width / 2;
+     const cy = pu.y + pu.height / 2;
+     const pulse = Math.sin(frameRef.current * 0.1) * 2;
 
-    ctx.save();
+     ctx.save();
 
-    let color: string;
-    let label: string;
-    switch (pu.type) {
-      case 'spread': color = COLORS.magenta; label = 'S'; break;
-      case 'shield': color = COLORS.cyan; label = '◊'; break;
-      case 'speed': color = COLORS.green; label = '»'; break;
-      case 'life': color = COLORS.red; label = '+'; break;
-    }
+     let color: string;
+     let label: string;
+     switch (pu.type) {
+       case 'spread': color = COLORS.magenta; label = 'S'; break;
+       case 'shield': color = COLORS.cyan; label = '◊'; break;
+       case 'speed': color = COLORS.green; label = '»'; break;
+       case 'life': color = COLORS.red; label = '+'; break;
+     }
 
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8 + pulse;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+     ctx.strokeStyle = color;
+     ctx.shadowColor = color;
+     ctx.shadowBlur = 8 + pulse;
+     ctx.lineWidth = 2;
+     ctx.beginPath();
+     ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
+     ctx.stroke();
+     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = color;
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, cx, cy);
+     ctx.fillStyle = color;
+     ctx.font = 'bold 14px monospace';
+     ctx.textAlign = 'center';
+     ctx.textBaseline = 'middle';
+     ctx.fillText(label, cx, cy);
 
-    ctx.restore();
-  }
+     ctx.restore();
+   }
+
+   function drawMonster(ctx: CanvasRenderingContext2D, monster: LevelEntity) {
+     const cx = monster.x + monster.w / 2;
+     const cy = monster.y + monster.h / 2;
+
+     ctx.save();
+
+     // Monster body - dangerous spiky appearance
+     ctx.fillStyle = monster.color || '#ff0000';
+     
+     // Create a spiky/triangle-based shape to indicate danger
+     ctx.beginPath();
+     // Bottom left
+     ctx.lineTo(monster.x, monster.y + monster.h);
+     // Bottom spike
+     ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+     // Bottom right
+     ctx.lineTo(monster.x + monster.w * 0.5, monster.y + monster.h);
+     // Mid-right spike
+     ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
+     // Top right
+     ctx.lineTo(monster.x + monster.w, monster.y);
+     // Top spike
+     ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
+     // Top left
+     ctx.lineTo(monster.x + monster.w * 0.5, monster.y);
+     // Mid-left spike
+     ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+     ctx.closePath();
+     ctx.fill();
+
+     // Add some danger indicators (stripes or glow)
+     ctx.strokeStyle = '#fff';
+     ctx.lineWidth = 1;
+     ctx.beginPath();
+     // Horizontal stripes
+     ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.3);
+     ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.3);
+     ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.7);
+     ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.7);
+     ctx.stroke();
+
+     ctx.restore();
+   }
 
   function drawHUD(ctx: CanvasRenderingContext2D, W: number, gd: GameData, player: PlayerShip) {
     ctx.save();
