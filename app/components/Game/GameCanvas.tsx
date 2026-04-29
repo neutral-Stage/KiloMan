@@ -157,7 +157,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
        enemiesRef.current = [];
        powerUpsRef.current = [];
        particlesRef.current = [];
-       monstersRef.current = levelEntities.filter(entity => entity.type === 'monster');
+       monstersRef.current = levelEntities.filter(entity => entity.type === 'monster').map(monster => ({ ...monster }));
        gameDataRef.current = createDefaultGameData();
        shootCooldownRef.current = 0;
        frameRef.current = 0;
@@ -385,31 +385,36 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
        }
      });
 
-     // --- Monsters (patrol behavior) ---
-     monstersRef.current.forEach(monster => {
-       // Initialize patrol start position if not set
-       if (monster.patrolStart === undefined) {
-         monster.patrolStart = monster.x;
-       }
-       
-       // Patrol logic: move back and forth within patrolRange
-       monster.x += monster.speed * dt;
-       
-       // Reverse direction if we've gone too far from patrol start
-       const distanceFromStart = Math.abs(monster.x - monster.patrolStart);
-       if (distanceFromStart > monster.patrolRange) {
-         monster.speed = -monster.speed; // Reverse direction
-         // Clamp position to stay within bounds
-         if (monster.x > monster.patrolStart + monster.patrolRange) {
-           monster.x = monster.patrolStart + monster.patrolRange;
-         } else if (monster.x < monster.patrolStart - monster.patrolRange) {
-           monster.x = monster.patrolStart - monster.patrolRange;
-         }
-       }
-       
-       // Keep monster within world bounds (optional)
-       monster.x = Math.max(0, Math.min(levelConfig.levelWidth - monster.w, monster.x));
-     });
+      // --- Monsters (patrol behavior) ---
+      monstersRef.current.forEach(monster => {
+        // Guard optional properties - skip if speed or patrolRange not defined
+        if (monster.speed === undefined || monster.patrolRange === undefined) {
+          return;
+        }
+        
+        // Initialize patrol start position if not set
+        if (monster.patrolStart === undefined) {
+          monster.patrolStart = monster.x;
+        }
+        
+        // Patrol logic: move back and forth within patrolRange
+        monster.x += monster.speed * dt;
+        
+        // Reverse direction if we've gone too far from patrol start
+        const distanceFromStart = Math.abs(monster.x - monster.patrolStart);
+        if (distanceFromStart > monster.patrolRange) {
+          monster.speed = -monster.speed; // Reverse direction
+          // Clamp position to stay within bounds
+          if (monster.x > monster.patrolStart + monster.patrolRange) {
+            monster.x = monster.patrolStart + monster.patrolRange;
+          } else if (monster.x < monster.patrolStart - monster.patrolRange) {
+            monster.x = monster.patrolStart - monster.patrolRange;
+          }
+        }
+        
+        // Keep monster within world bounds (optional)
+        monster.x = Math.max(0, Math.min(levelConfig.levelWidth - monster.w, monster.x));
+      });
 
     // Remove off-screen enemies
     const offScreenEnemies = enemiesRef.current.filter(e => e.y > H + 100);
@@ -951,28 +956,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
      ctx.save();
 
-     // Monster body - dangerous spiky appearance
-     ctx.fillStyle = monster.color || '#ff0000';
-     
-     // Create a spiky/triangle-based shape to indicate danger
-     ctx.beginPath();
-     // Bottom left
-     ctx.lineTo(monster.x, monster.y + monster.h);
-     // Bottom spike
-     ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
-     // Bottom right
-     ctx.lineTo(monster.x + monster.w * 0.5, monster.y + monster.h);
-     // Mid-right spike
-     ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
-     // Top right
-     ctx.lineTo(monster.x + monster.w, monster.y);
-     // Top spike
-     ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
-     // Top left
-     ctx.lineTo(monster.x + monster.w * 0.5, monster.y);
-     // Mid-left spike
-     ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
-     ctx.closePath();
+      // Monster body - dangerous spiky appearance
+      ctx.fillStyle = monster.color || '#ff0000';
+      
+      // Create a spiky/triangle-based shape to indicate danger
+      ctx.beginPath();
+      // Bottom left
+      ctx.moveTo(monster.x, monster.y + monster.h);
+      // Bottom spike
+      ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+      // Bottom right
+      ctx.lineTo(monster.x + monster.w * 0.5, monster.y + monster.h);
+      // Mid-right spike
+      ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
+      // Top right
+      ctx.lineTo(monster.x + monster.w, monster.y);
+      // Top spike (duplicate point removed - use mid-top instead)
+      ctx.lineTo(monster.x + monster.w * 0.5, monster.y);
+      // Top left
+      ctx.lineTo(monster.x, monster.y);
+      // Mid-left spike
+      ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+      ctx.closePath();
      ctx.fill();
 
      // Add some danger indicators (stripes or glow)
