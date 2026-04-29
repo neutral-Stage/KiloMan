@@ -33,20 +33,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const lastTimeRef = useRef<number>(0);
   const [dimensions, setDimensions] = React.useState({ width: 800, height: 600 });
 
-   // Game state refs (mutable for game loop)
-   const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
-   const bulletsRef = useRef<Bullet[]>([]);
-   const enemiesRef = useRef<Enemy[]>([]);
-   const powerUpsRef = useRef<PowerUp[]>([]);
-   const particlesRef = useRef<Particle[]>([]);
-   const starsRef = useRef<Star[]>([]);
-   const monstersRef = useRef<LevelEntity[]>([]);
-   const gameDataRef = useRef<GameData>(createDefaultGameData());
-   const keysRef = useRef<Record<string, boolean>>({});
-   const shootCooldownRef = useRef(0);
-   const frameRef = useRef(0);
-   const audioRef = useRef<AudioEngine | null>(null);
-   const logoRef = useRef<HTMLImageElement | null>(null);
+  // Game state refs (mutable for game loop)
+  const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
+  const bulletsRef = useRef<Bullet[]>([]);
+  const enemiesRef = useRef<Enemy[]>([]);
+  const powerUpsRef = useRef<PowerUp[]>([]);
+  const particlesRef = useRef<Particle[]>([]);
+  const starsRef = useRef<Star[]>([]);
+  const monstersRef = useRef<LevelEntity[]>([]);
+  const gameDataRef = useRef<GameData>(createDefaultGameData());
+  const keysRef = useRef<Record<string, boolean>>({});
+  const shootCooldownRef = useRef(0);
+  const frameRef = useRef(0);
+  const audioRef = useRef<AudioEngine | null>(null);
+  const logoRef = useRef<HTMLImageElement | null>(null);
 
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
@@ -147,8 +147,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }, [gameState, setGameState]);
 
-   // Reset game on state change to playing
-   useEffect(() => {
+  // Reset game on state change to playing
+  useEffect(() => {
      if (gameState === 'playing') {
        const w = dimensions.width;
        const h = dimensions.height;
@@ -916,83 +916,83 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.restore();
   }
 
-   function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
-     const cx = pu.x + pu.width / 2;
-     const cy = pu.y + pu.height / 2;
-     const pulse = Math.sin(frameRef.current * 0.1) * 2;
+  function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
+    const cx = pu.x + pu.width / 2;
+    const cy = pu.y + pu.height / 2;
+    const pulse = Math.sin(frameRef.current * 0.1) * 2;
 
-     ctx.save();
+    ctx.save();
 
-     let color: string;
-     let label: string;
-     switch (pu.type) {
-       case 'spread': color = COLORS.magenta; label = 'S'; break;
-       case 'shield': color = COLORS.cyan; label = '◊'; break;
-       case 'speed': color = COLORS.green; label = '»'; break;
-       case 'life': color = COLORS.red; label = '+'; break;
-     }
+    let color: string;
+    let label: string;
+    switch (pu.type) {
+      case 'spread': color = COLORS.magenta; label = 'S'; break;
+      case 'shield': color = COLORS.cyan; label = '◊'; break;
+      case 'speed': color = COLORS.green; label = '»'; break;
+      case 'life': color = COLORS.red; label = '+'; break;
+    }
 
-     ctx.strokeStyle = color;
-     ctx.shadowColor = color;
-     ctx.shadowBlur = 8 + pulse;
-     ctx.lineWidth = 2;
-     ctx.beginPath();
-     ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
-     ctx.stroke();
-     ctx.shadowBlur = 0;
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8 + pulse;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
 
-     ctx.fillStyle = color;
-     ctx.font = 'bold 14px monospace';
-     ctx.textAlign = 'center';
-     ctx.textBaseline = 'middle';
-     ctx.fillText(label, cx, cy);
+    ctx.fillStyle = color;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, cx, cy);
 
-     ctx.restore();
-   }
+    ctx.restore();
+  }
 
-   function drawMonster(ctx: CanvasRenderingContext2D, monster: LevelEntity) {
-     const cx = monster.x + monster.w / 2;
-     const cy = monster.y + monster.h / 2;
+  function drawMonster(ctx: CanvasRenderingContext2D, monster: LevelEntity) {
+    const cx = monster.x + monster.w / 2;
+    const cy = monster.y + monster.h / 2;
 
-     ctx.save();
+    ctx.save();
 
-      // Monster body - dangerous spiky appearance
-      ctx.fillStyle = monster.color || '#ff0000';
-      
-      // Create a spiky/triangle-based shape to indicate danger
-      ctx.beginPath();
-      // Bottom left
-      ctx.moveTo(monster.x, monster.y + monster.h);
-      // Bottom spike
-      ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
-      // Bottom right
-      ctx.lineTo(monster.x + monster.w * 0.5, monster.y + monster.h);
-      // Mid-right spike
-      ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
-      // Top right
-      ctx.lineTo(monster.x + monster.w, monster.y);
-      // Top spike (duplicate point removed - use mid-top instead)
-      ctx.lineTo(monster.x + monster.w * 0.5, monster.y);
-      // Top left
-      ctx.lineTo(monster.x, monster.y);
-      // Mid-left spike
-      ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
-      ctx.closePath();
-     ctx.fill();
+    // Monster body - dangerous spiky appearance
+    ctx.fillStyle = monster.color || '#ff0000';
+    
+    // Create a spiky/triangle-based shape to indicate danger
+    ctx.beginPath();
+    // Bottom left
+    ctx.moveTo(monster.x, monster.y + monster.h);
+    // Bottom spike
+    ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+    // Bottom right
+    ctx.lineTo(monster.x + monster.w * 0.5, monster.y + monster.h);
+    // Mid-right spike
+    ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
+    // Top right
+    ctx.lineTo(monster.x + monster.w, monster.y);
+    // Top spike (duplicate point removed - use mid-top instead)
+    ctx.lineTo(monster.x + monster.w * 0.5, monster.y);
+    // Top left
+    ctx.lineTo(monster.x, monster.y);
+    // Mid-left spike
+    ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+    ctx.closePath();
+    ctx.fill();
 
-     // Add some danger indicators (stripes or glow)
-     ctx.strokeStyle = '#fff';
-     ctx.lineWidth = 1;
-     ctx.beginPath();
-     // Horizontal stripes
-     ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.3);
-     ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.3);
-     ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.7);
-     ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.7);
-     ctx.stroke();
+    // Add some danger indicators (stripes or glow)
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    // Horizontal stripes
+    ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.3);
+    ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.3);
+    ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.7);
+    ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.7);
+    ctx.stroke();
 
-     ctx.restore();
-   }
+    ctx.restore();
+  }
 
   function drawHUD(ctx: CanvasRenderingContext2D, W: number, gd: GameData, player: PlayerShip) {
     ctx.save();
