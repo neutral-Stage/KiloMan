@@ -8,6 +8,12 @@ export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
 export const STAR_COUNT = 150;
 
+// ===== CAMERA CONSTANTS =====
+export const CAMERA_SMOOTHING = 0.08;   // Lerp factor (0-1)
+export const CAMERA_OFFSET_Y = -0.3;    // Offset from player center (negative = look above player)
+export const CAMERA_DEADZONE_X = 50;    // Horizontal deadzone before camera moves
+export const WORLD_HEIGHT = 10000;      // Total world height (for star wrapping)
+
 // ===== COLORS =====
 export const COLORS = {
   cyan: '#00ffff',
