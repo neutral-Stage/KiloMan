@@ -3,11 +3,12 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData, Camera,
+  Particle, Star, GameData, LevelEntity, EntityType,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
 import { rectsOverlap } from './collision';
+import { levelEntities, levelConfig } from './levelData';
 import {
   PLAYER_SHOOT_COOLDOWN,
   INVINCIBILITY_FRAMES,
@@ -18,9 +19,6 @@ import {
   STAR_LAYERS,
   STAR_COUNT,
   COLORS,
-  CAMERA_SMOOTHING,
-  CAMERA_OFFSET_Y,
-  WORLD_HEIGHT,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -35,20 +33,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const lastTimeRef = useRef<number>(0);
   const [dimensions, setDimensions] = React.useState({ width: 800, height: 600 });
 
-  // Game state refs (mutable for game loop)
-  const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
-  const bulletsRef = useRef<Bullet[]>([]);
-  const enemiesRef = useRef<Enemy[]>([]);
-  const powerUpsRef = useRef<PowerUp[]>([]);
-  const particlesRef = useRef<Particle[]>([]);
-  const starsRef = useRef<Star[]>([]);
-  const gameDataRef = useRef<GameData>(createDefaultGameData());
-  const keysRef = useRef<Record<string, boolean>>({});
-  const shootCooldownRef = useRef(0);
-  const frameRef = useRef(0);
-  const audioRef = useRef<AudioEngine | null>(null);
-  const logoRef = useRef<HTMLImageElement | null>(null);
-  const cameraRef = useRef<Camera>(createDefaultCamera(800, 600));
+   // Game state refs (mutable for game loop)
+   const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
+   const bulletsRef = useRef<Bullet[]>([]);
+   const enemiesRef = useRef<Enemy[]>([]);
+   const powerUpsRef = useRef<PowerUp[]>([]);
+   const particlesRef = useRef<Particle[]>([]);
+   const starsRef = useRef<Star[]>([]);
+   const monstersRef = useRef<LevelEntity[]>([]);
+   const gameDataRef = useRef<GameData>(createDefaultGameData());
+   const keysRef = useRef<Record<string, boolean>>({});
+   const shootCooldownRef = useRef(0);
+   const frameRef = useRef(0);
+   const audioRef = useRef<AudioEngine | null>(null);
+   const logoRef = useRef<HTMLImageElement | null>(null);
 
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
@@ -79,35 +77,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }
 
-  function createDefaultCamera(w: number, h: number): Camera {
-    return {
-      x: 0, y: 0,
-      width: w,
-      height: h,
-      targetX: 0, targetY: 0,
-      smoothing: CAMERA_SMOOTHING,
-    };
-  }
-
-  // Initialize stars in world space
+  // Initialize stars
   const initStars = useCallback((w: number, h: number) => {
-    const worldW = w;
-    const worldH = WORLD_HEIGHT;
     const stars: Star[] = [];
     for (let i = 0; i < STAR_COUNT; i++) {
       const layer = i % STAR_LAYERS;
       stars.push({
-        x: Math.random() * worldW,
-        y: Math.random() * worldH,
+        x: Math.random() * w,
+        y: Math.random() * h,
         speed: 0.5 + layer * 1.2,
         size: 1 + layer * 0.5,
         brightness: 0.3 + layer * 0.25,
       });
     }
     starsRef.current = stars;
-    // Reset camera dimensions
-    cameraRef.current.width = w;
-    cameraRef.current.height = h;
   }, []);
 
   // Resize handler
@@ -164,23 +147,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     };
   }, [gameState, setGameState]);
 
-  // Reset game on state change to playing
-  useEffect(() => {
-    if (gameState === 'playing') {
-      const w = dimensions.width;
-      const h = dimensions.height;
-      playerRef.current = createDefaultPlayer(w / 2, h - 80);
-      bulletsRef.current = [];
-      enemiesRef.current = [];
-      powerUpsRef.current = [];
-      particlesRef.current = [];
-      gameDataRef.current = createDefaultGameData();
-      shootCooldownRef.current = 0;
-      frameRef.current = 0;
-      cameraRef.current = createDefaultCamera(w, h);
-      initStars(w, h);
-    }
-  }, [gameState, dimensions, initStars]);
+   // Reset game on state change to playing
+   useEffect(() => {
+     if (gameState === 'playing') {
+       const w = dimensions.width;
+       const h = dimensions.height;
+       playerRef.current = createDefaultPlayer(levelConfig.playerStartX, levelConfig.playerStartY);
+       bulletsRef.current = [];
+       enemiesRef.current = [];
+       powerUpsRef.current = [];
+       particlesRef.current = [];
+       monstersRef.current = levelEntities.filter(entity => entity.type === 'monster').map(monster => ({ ...monster }));
+       gameDataRef.current = createDefaultGameData();
+       shootCooldownRef.current = 0;
+       frameRef.current = 0;
+       initStars(w, h);
+     }
+   }, [gameState, dimensions, initStars]);
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
@@ -207,34 +190,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
     });
   }, []);
-
-  // ===== CAMERA =====
-  const updateCamera = useCallback(() => {
-    const camera = cameraRef.current;
-    const player = playerRef.current;
-
-    // Target: center camera on player with vertical offset (look above player)
-    const playerCenterX = player.x + player.width / 2;
-    const playerCenterY = player.y + player.height / 2;
-
-    camera.targetX = playerCenterX - camera.width / 2;
-    camera.targetY = playerCenterY - camera.height * (1 + CAMERA_OFFSET_Y);
-
-    // World bounds
-    const worldW = dimensions.width;
-    const worldH = WORLD_HEIGHT;
-
-    camera.targetX = Math.max(0, Math.min(worldW - camera.width, camera.targetX));
-    camera.targetY = Math.max(0, Math.min(worldH - camera.height, camera.targetY));
-
-    // Smooth follow (lerp)
-    camera.x += (camera.targetX - camera.x) * camera.smoothing;
-    camera.y += (camera.targetY - camera.y) * camera.smoothing;
-
-    // Clamp camera to world
-    camera.x = Math.max(0, Math.min(worldW - camera.width, camera.x));
-    camera.y = Math.max(0, Math.min(worldH - camera.height, camera.y));
-  }, [dimensions]);
 
   const playerShoot = useCallback((player: PlayerShip, w: number) => {
     if (shootCooldownRef.current > 0) return;
@@ -304,13 +259,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       setGameState('gameover');
     } else {
       player.invincibleTimer = INVINCIBILITY_FRAMES;
-      // Respawn at center-bottom of camera view (within world bounds)
-      const cam = cameraRef.current;
-      player.x = cam.x + W / 2 - player.width / 2;
-      player.y = cam.y + H - 80;
-      // Clamp to camera viewport (keep player on screen)
-      player.x = Math.max(cam.x, Math.min(cam.x + cam.width - player.width, player.x));
-      player.y = Math.max(cam.y + H * 0.3, Math.min(cam.y + H - player.height - 10, player.y));
+      player.x = W / 2 - player.width / 2;
+      player.y = H - 80;
       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
     }
   }, [spawnParticles, setGameState]);
@@ -350,9 +300,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const gd = gameDataRef.current;
     const W = dimensions.width;
     const H = dimensions.height;
-    const worldW = dimensions.width;
-    const worldH = WORLD_HEIGHT;
-    const camera = cameraRef.current;
 
     frameRef.current++;
     player.thrusterFrame++;
@@ -364,12 +311,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
     if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
 
-    // Clamp to camera viewport (player stays on screen)
-    player.x = Math.max(camera.x, Math.min(camera.x + camera.width - player.width, player.x));
-    player.y = Math.max(camera.y + H * 0.3, Math.min(camera.y + H - player.height - 10, player.y));
-
-    // Update camera AFTER player movement
-    updateCamera();
+    // Clamp to screen
+    player.x = Math.max(0, Math.min(W - player.width, player.x));
+    player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
 
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
@@ -383,79 +327,105 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (player.powerUps.speedBoost > 0) player.powerUps.speedBoost -= dt;
     if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
-    // --- Stars --- (world-space wrapping)
+    // --- Stars ---
     starsRef.current.forEach(star => {
       star.y += star.speed * dt;
-      if (star.y > worldH) {
+      if (star.y > H) {
         star.y = 0;
-        star.x = Math.random() * worldW;
+        star.x = Math.random() * W;
       }
     });
 
-    // --- Bullets ---
-    bulletsRef.current.forEach(b => {
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-    });
-    // Cull bullets outside camera view (with margin)
-    const cam = cameraRef.current;
-    const cullMargin = 100;
-    bulletsRef.current = bulletsRef.current.filter(b =>
-      !b.destroyed &&
-      b.x > cam.x - cullMargin && b.x < cam.x + cam.width + cullMargin &&
-      b.y > cam.y - cullMargin && b.y < cam.y + cam.height + cullMargin
-    );
+     // --- Bullets ---
+     bulletsRef.current.forEach(b => {
+       b.x += b.vx * dt;
+       b.y += b.vy * dt;
+     });
+     bulletsRef.current = bulletsRef.current.filter(b =>
+       !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
+     );
 
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      e.patternTimer += dt;
-      e.shootTimer += dt;
+     // --- Enemies ---
+     enemiesRef.current.forEach(e => {
+       e.patternTimer += dt;
+       e.shootTimer += dt;
 
-      switch (e.pattern) {
-        case 'straight':
-          e.y += e.speed * dt;
-          break;
-        case 'zigzag':
-          e.y += e.speed * dt;
-          e.x = e.startX + Math.sin(e.patternTimer * 0.05) * e.patternAmplitude;
-          break;
-        case 'swoop':
-          e.y += e.speed * dt;
-          e.x = e.startX + Math.sin(e.patternTimer * 0.03) * e.patternAmplitude;
-          if (e.patternTimer > 60 && e.patternTimer < 120) {
-            e.y += e.speed * 2 * dt; // dive
+       switch (e.pattern) {
+         case 'straight':
+           e.y += e.speed * dt;
+           break;
+         case 'zigzag':
+           e.y += e.speed * dt;
+           e.x = e.startX + Math.sin(e.patternTimer * 0.05) * e.patternAmplitude;
+           break;
+         case 'swoop':
+           e.y += e.speed * dt;
+           e.x = e.startX + Math.sin(e.patternTimer * 0.03) * e.patternAmplitude;
+           if (e.patternTimer > 60 && e.patternTimer < 120) {
+             e.y += e.speed * 2 * dt; // dive
+           }
+           break;
+         case 'boss':
+           // Boss moves to center-top then oscillates
+           if (e.y < 60) {
+             e.y += e.speed * dt;
+           } else {
+             e.x = W / 2 - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (W * 0.3);
+           }
+           break;
+       }
+
+       // Clamp enemy X
+       e.x = Math.max(0, Math.min(W - e.width, e.x));
+
+       // Enemy shooting
+       if (e.shootTimer >= e.shootInterval && e.y > 0) {
+         e.shootTimer = 0;
+         enemyShoot(e);
+       }
+     });
+
+      // --- Monsters (patrol behavior) ---
+      monstersRef.current.forEach(monster => {
+        // Guard optional properties - skip if speed or patrolRange not defined
+        if (monster.speed === undefined || monster.patrolRange === undefined) {
+          return;
+        }
+        
+        // Initialize patrol start position if not set
+        if (monster.patrolStart === undefined) {
+          monster.patrolStart = monster.x;
+        }
+        
+        // Patrol logic: move back and forth within patrolRange
+        monster.x += monster.speed * dt;
+        
+        // Reverse direction if we've gone too far from patrol start
+        const distanceFromStart = Math.abs(monster.x - monster.patrolStart);
+        if (distanceFromStart > monster.patrolRange) {
+          monster.speed = -monster.speed; // Reverse direction
+          // Clamp position to stay within bounds
+          if (monster.x > monster.patrolStart + monster.patrolRange) {
+            monster.x = monster.patrolStart + monster.patrolRange;
+          } else if (monster.x < monster.patrolStart - monster.patrolRange) {
+            monster.x = monster.patrolStart - monster.patrolRange;
           }
-          break;
-        case 'boss':
-          // Boss moves to center-top then oscillates
-          if (e.y < 60) {
-            e.y += e.speed * dt;
-          } else {
-            e.x = (camera.x + camera.width / 2) - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (camera.width * 0.3);
-          }
-          break;
-      }
+        }
+        
+        // Keep monster within world bounds (optional)
+        monster.x = Math.max(0, Math.min(levelConfig.levelWidth - monster.w, monster.x));
+      });
 
-      // Clamp enemy X to world bounds (not screen)
-      e.x = Math.max(0, Math.min(worldW - e.width, e.x));
-
-      // Enemy shooting
-      if (e.shootTimer >= e.shootInterval && e.y > 0) {
-        e.shootTimer = 0;
-        enemyShoot(e);
-      }
-    });
-
-    // Remove off-screen enemies (below camera view)
-    const offScreenEnemies = enemiesRef.current.filter(e => e.y > cam.y + cam.height + 100);
+    // Remove off-screen enemies
+    const offScreenEnemies = enemiesRef.current.filter(e => e.y > H + 100);
     offScreenEnemies.forEach(() => {
       gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
     });
-    enemiesRef.current = enemiesRef.current.filter(e => e.y <= cam.y + cam.height + 100);
+    enemiesRef.current = enemiesRef.current.filter(e => e.y <= H + 100);
 
     // --- Power-ups ---
     powerUpsRef.current.forEach(p => { p.y += p.vy * dt; });
-    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < cam.y + cam.height + 30);
+    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < H + 30);
 
     // --- Particles ---
     particlesRef.current.forEach(p => {
@@ -515,21 +485,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       }
     }
 
-    // --- Collision: Enemies vs player ---
-    if (player.invincibleTimer <= 0) {
-      for (const enemy of enemiesRef.current) {
-        if (rectsOverlap(player.x, player.y, player.width, player.height,
-          enemy.x, enemy.y, enemy.width, enemy.height)) {
-          if (player.powerUps.shield > 0) {
-            player.powerUps.shield = 0;
-            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
-          } else {
-            playerHit(player, W, H);
-          }
-          break;
-        }
-      }
-    }
+     // --- Collision: Enemies vs player ---
+     if (player.invincibleTimer <= 0) {
+       for (const enemy of enemiesRef.current) {
+         if (rectsOverlap(player.x, player.y, player.width, player.height,
+           enemy.x, enemy.y, enemy.width, enemy.height)) {
+           if (player.powerUps.shield > 0) {
+             player.powerUps.shield = 0;
+             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
+           } else {
+             playerHit(player, W, H);
+           }
+           break;
+         }
+       }
+     }
+
+     // --- Collision: Monsters vs player ---
+     if (player.invincibleTimer <= 0) {
+       for (const monster of monstersRef.current) {
+         if (rectsOverlap(player.x, player.y, player.width, player.height,
+           monster.x, monster.y, monster.w, monster.h)) {
+           // Player touched monster -> Game Over
+           playerHit(player, W, H);
+           break;
+         }
+       }
+     }
 
     // --- Collision: Player vs power-ups ---
     for (let i = powerUpsRef.current.length - 1; i >= 0; i--) {
@@ -555,7 +537,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.waveTimer += dt;
       const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
       for (const s of toSpawn) {
-        enemiesRef.current.push(createEnemy(s.type, W, camera.y));
+        enemiesRef.current.push(createEnemy(s.type, W));
       }
       gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
 
@@ -572,7 +554,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.highScore = gd.score;
     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave, updateCamera]);
+  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -580,23 +562,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const H = ctx.canvas.height;
     const player = playerRef.current;
     const gd = gameDataRef.current;
-    const camera = cameraRef.current;
 
-    // Clear screen
+    // Clear
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, W, H);
 
-    // Draw stars (always in screen-space with parallax based on camera)
-    // For start/gameover, stars move slower (ambient). For playing, they show depth.
-    ctx.save();
-    ctx.translate(-camera.x * 0.1, -camera.y * 0.1); // Parallax effect
+    // --- Stars ---
     starsRef.current.forEach(star => {
       ctx.globalAlpha = star.brightness;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(star.x, star.y, star.size, star.size);
     });
     ctx.globalAlpha = 1;
-    ctx.restore();
 
     if (gameState === 'start') {
       drawStartScreen(ctx, W, H);
@@ -607,10 +584,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       drawGameOverScreen(ctx, W, H, gd);
       return;
     }
-
-    // Draw world with camera transform
-    ctx.save();
-    ctx.translate(-camera.x, -camera.y);
 
     // --- Particles (behind everything) ---
     particlesRef.current.forEach(p => {
@@ -636,22 +609,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       ctx.shadowBlur = 0;
     });
 
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      drawEnemy(ctx, e);
-    });
+     // --- Enemies ---
+     enemiesRef.current.forEach(e => {
+       drawEnemy(ctx, e);
+     });
+
+     // --- Monsters ---
+     monstersRef.current.forEach(monster => {
+       drawMonster(ctx, monster);
+     });
 
     // --- Player ---
     if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
       drawPlayer(ctx, player);
     }
 
-    ctx.restore();
-
-    // --- HUD (screen-space) ---
+    // --- HUD ---
     drawHUD(ctx, W, gd, player);
 
-    // --- Wave indicator (screen-space) ---
+    // --- Wave indicator ---
     if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
@@ -940,39 +916,83 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.restore();
   }
 
-  function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
-    const cx = pu.x + pu.width / 2;
-    const cy = pu.y + pu.height / 2;
-    const pulse = Math.sin(frameRef.current * 0.1) * 2;
+   function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
+     const cx = pu.x + pu.width / 2;
+     const cy = pu.y + pu.height / 2;
+     const pulse = Math.sin(frameRef.current * 0.1) * 2;
 
-    ctx.save();
+     ctx.save();
 
-    let color: string;
-    let label: string;
-    switch (pu.type) {
-      case 'spread': color = COLORS.magenta; label = 'S'; break;
-      case 'shield': color = COLORS.cyan; label = '◊'; break;
-      case 'speed': color = COLORS.green; label = '»'; break;
-      case 'life': color = COLORS.red; label = '+'; break;
-    }
+     let color: string;
+     let label: string;
+     switch (pu.type) {
+       case 'spread': color = COLORS.magenta; label = 'S'; break;
+       case 'shield': color = COLORS.cyan; label = '◊'; break;
+       case 'speed': color = COLORS.green; label = '»'; break;
+       case 'life': color = COLORS.red; label = '+'; break;
+     }
 
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8 + pulse;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+     ctx.strokeStyle = color;
+     ctx.shadowColor = color;
+     ctx.shadowBlur = 8 + pulse;
+     ctx.lineWidth = 2;
+     ctx.beginPath();
+     ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
+     ctx.stroke();
+     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = color;
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, cx, cy);
+     ctx.fillStyle = color;
+     ctx.font = 'bold 14px monospace';
+     ctx.textAlign = 'center';
+     ctx.textBaseline = 'middle';
+     ctx.fillText(label, cx, cy);
 
-    ctx.restore();
-  }
+     ctx.restore();
+   }
+
+   function drawMonster(ctx: CanvasRenderingContext2D, monster: LevelEntity) {
+     const cx = monster.x + monster.w / 2;
+     const cy = monster.y + monster.h / 2;
+
+     ctx.save();
+
+      // Monster body - dangerous spiky appearance
+      ctx.fillStyle = monster.color || '#ff0000';
+      
+      // Create a spiky/triangle-based shape to indicate danger
+      ctx.beginPath();
+      // Bottom left
+      ctx.moveTo(monster.x, monster.y + monster.h);
+      // Bottom spike
+      ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+      // Bottom right
+      ctx.lineTo(monster.x + monster.w * 0.5, monster.y + monster.h);
+      // Mid-right spike
+      ctx.lineTo(monster.x + monster.w * 0.75, monster.y + monster.h * 0.3);
+      // Top right
+      ctx.lineTo(monster.x + monster.w, monster.y);
+      // Top spike (duplicate point removed - use mid-top instead)
+      ctx.lineTo(monster.x + monster.w * 0.5, monster.y);
+      // Top left
+      ctx.lineTo(monster.x, monster.y);
+      // Mid-left spike
+      ctx.lineTo(monster.x + monster.w * 0.25, monster.y + monster.h * 0.7);
+      ctx.closePath();
+     ctx.fill();
+
+     // Add some danger indicators (stripes or glow)
+     ctx.strokeStyle = '#fff';
+     ctx.lineWidth = 1;
+     ctx.beginPath();
+     // Horizontal stripes
+     ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.3);
+     ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.3);
+     ctx.moveTo(monster.x + 5, monster.y + monster.h * 0.7);
+     ctx.lineTo(monster.x + monster.w - 5, monster.y + monster.h * 0.7);
+     ctx.stroke();
+
+     ctx.restore();
+   }
 
   function drawHUD(ctx: CanvasRenderingContext2D, W: number, gd: GameData, player: PlayerShip) {
     ctx.save();

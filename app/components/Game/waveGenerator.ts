@@ -49,10 +49,10 @@ export function generateWave(waveNum: number): WaveConfig {
   return configs[waveNum % configs.length];
 }
 
-export function createEnemy(type: EnemyType, canvasWidth: number, cameraY: number = 0): Enemy {
+export function createEnemy(type: EnemyType, canvasWidth: number): Enemy {
   const base = {
     type: type,
-    y: cameraY - 60,
+    y: -60,
     health: 1,
     maxHealth: 1,
     shootTimer: 0,
