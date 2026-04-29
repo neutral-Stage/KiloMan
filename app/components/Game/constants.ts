@@ -10,6 +10,11 @@ export const STAR_COUNT = 150;
 
 import type { ParallaxLayerType } from './types';
 
+// ===== CAMERA CONSTANTS =====
+export const CAMERA_SMOOTHING = 0.08;   // Lerp factor (0-1, higher = snappier)
+export const CAMERA_OFFSET_Y = -0.3;    // Offset from player center (negative = look above player)
+export const WORLD_HEIGHT = 10000;      // Total world height (for star wrapping)
+
 // ===== PARALLAX LAYERS =====
 export const PARALLAX_LAYERS: Array<{
   type: ParallaxLayerType;
@@ -58,4 +63,7 @@ export const COLORS = {
   enemySwooper: '#ff00ff',
   enemyTank: '#888888',
   boss: '#ff0044',
+  platform: '#4a4a5a',
+  platformTop: '#7a7a8a',
+  platformShadow: 'rgba(0, 0, 0, 0.5)',
 };

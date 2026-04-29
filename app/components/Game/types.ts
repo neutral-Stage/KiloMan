@@ -77,6 +77,14 @@ export interface PowerUp {
   vy: number;
 }
 
+export interface Star {
+  x: number;
+  y: number;
+  speed: number;
+  size: number;
+  brightness: number;
+}
+
 export interface Particle {
   x: number;
   y: number;
@@ -88,27 +96,7 @@ export interface Particle {
   size: number;
 }
 
-export interface Star {
-  x: number;
-  y: number;
-  speed: number;
-  size: number;
-  brightness: number;
-}
-
-export interface ParallaxElement {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  points?: Array<{ x: number; y: number }>;
-  // Optional per-element properties for specific layer types
-  speed?: number;
-  size?: number;
-  brightness?: number;
-}
-
-export type ParallaxLayerType = 'stars' | 'mountains' | 'cityscape' | 'nebula';
+export type ParallaxLayerType = 'nebula' | 'mountains' | 'stars' | 'cityscape';
 
 export interface ParallaxLayer {
   type: ParallaxLayerType;
@@ -116,6 +104,34 @@ export interface ParallaxLayer {
   color: string;
   secondaryColor?: string;
   elements: ParallaxElement[];
+}
+
+export interface ParallaxElement {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  speed?: number;
+  brightness?: number;
+  points?: Array<{ x: number; y: number }>;
+}
+
+export interface Platform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+// ===== CAMERA =====
+export interface Camera {
+  x: number;         // World X position (left edge of viewport)
+  y: number;         // World Y position (top edge of viewport)
+  width: number;     // Viewport width (matches canvas)
+  height: number;    // Viewport height (matches canvas)
+  targetX: number;   // Target X for smooth follow
+  targetY: number;   // Target Y for smooth follow
+  smoothing: number; // Lerp factor (0-1, higher = snappier)
 }
 
 export interface WaveConfig {
