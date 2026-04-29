@@ -26,11 +26,20 @@ interface GameCanvasProps {
   setGameState: (state: GameState) => void;
 }
 
+// Camera system
+interface Camera {
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+}
+
 const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const [dimensions, setDimensions] = React.useState({ width: 800, height: 600 });
+  const cameraRef = useRef<Camera>({ x: 0, y: 0, targetX: 0, targetY: 0 });
 
   // Game state refs (mutable for game loop)
   const playerRef = useRef<PlayerShip>(createDefaultPlayer(400, 500));
@@ -78,10 +87,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   // Initialize stars
   const initStars = useCallback((w: number, h: number) => {
     const stars: Star[] = [];
+    const worldWidth = w * 3; // Wider world for scrolling
     for (let i = 0; i < STAR_COUNT; i++) {
       const layer = i % STAR_LAYERS;
       stars.push({
-        x: Math.random() * w,
+        x: Math.random() * worldWidth,
         y: Math.random() * h,
         speed: 0.5 + layer * 1.2,
         size: 1 + layer * 0.5,
@@ -297,6 +307,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const gd = gameDataRef.current;
     const W = dimensions.width;
     const H = dimensions.height;
+    const camera = cameraRef.current;
+
+    // --- Update camera target to follow player ---
+    const playerCenterX = player.x + player.width / 2;
+    const playerCenterY = player.y + player.height / 2;
+    camera.targetX = playerCenterX - W / 2;
+    camera.targetY = playerCenterY - H / 2;
+
+    // Clamp camera to world bounds
+    const worldWidth = W * 3; // World extends beyond screen
+    const worldHeight = H;
+    camera.targetX = Math.max(0, Math.min(camera.targetX, Math.max(0, worldWidth - W)));
+    camera.targetY = Math.max(0, Math.min(camera.targetY, Math.max(0, worldHeight - H)));
+
+    // Smooth camera lerp
+    camera.x += (camera.targetX - camera.x) * 0.08;
+    camera.y += (camera.targetY - camera.y) * 0.08;
 
     frameRef.current++;
     player.thrusterFrame++;
@@ -327,9 +354,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     // --- Stars ---
     starsRef.current.forEach(star => {
       star.y += star.speed * dt;
+      star.x -= camera.x * 0.02; // Parallax scroll effect
       if (star.y > H) {
         star.y = 0;
-        star.x = Math.random() * W;
+        star.x = camera.x + Math.random() * W;
+      }
+      // Keep stars within world bounds
+      if (star.x < camera.x - 50) {
+        star.x = camera.x + W + Math.random() * 100;
+      }
+      if (star.x > camera.x + W + 100) {
+        star.x = camera.x - 50 - Math.random() * 100;
       }
     });
 
@@ -516,12 +551,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const H = ctx.canvas.height;
     const player = playerRef.current;
     const gd = gameDataRef.current;
+    const camera = cameraRef.current;
 
     // Clear
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, W, H);
 
-    // --- Stars ---
+    // Save context for camera transform
+    ctx.save();
+    // Apply camera transform (translate world to screen space)
+    ctx.translate(-camera.x, -camera.y);
+
+    // --- Stars (scroll with camera) ---
     starsRef.current.forEach(star => {
       ctx.globalAlpha = star.brightness;
       ctx.fillStyle = '#ffffff';
@@ -529,55 +570,52 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
     ctx.globalAlpha = 1;
 
-    if (gameState === 'start') {
-      drawStartScreen(ctx, W, H);
-      return;
+    if (gameState === 'playing') {
+      // --- Particles (behind everything) ---
+      particlesRef.current.forEach(p => {
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      // --- Power-ups ---
+      powerUpsRef.current.forEach(pu => {
+        drawPowerUp(ctx, pu);
+      });
+
+      // --- Bullets ---
+      bulletsRef.current.forEach(b => {
+        ctx.fillStyle = b.color;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.shadowBlur = 0;
+      });
+
+      // --- Enemies ---
+      enemiesRef.current.forEach(e => {
+        drawEnemy(ctx, e);
+      });
+
+      // --- Player ---
+      if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
+        drawPlayer(ctx, player);
+      }
     }
 
-    if (gameState === 'gameover') {
-      drawGameOverScreen(ctx, W, H, gd);
-      return;
+    // Restore camera transform before HUD
+    ctx.restore();
+
+    // --- HUD (screen space, not affected by camera) ---
+    if (gameState === 'playing') {
+      drawHUD(ctx, W, gd, player);
     }
 
-    // --- Particles (behind everything) ---
-    particlesRef.current.forEach(p => {
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
-
-    // --- Power-ups ---
-    powerUpsRef.current.forEach(pu => {
-      drawPowerUp(ctx, pu);
-    });
-
-    // --- Bullets ---
-    bulletsRef.current.forEach(b => {
-      ctx.fillStyle = b.color;
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 8;
-      ctx.fillRect(b.x, b.y, b.width, b.height);
-      ctx.shadowBlur = 0;
-    });
-
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      drawEnemy(ctx, e);
-    });
-
-    // --- Player ---
-    if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
-      drawPlayer(ctx, player);
-    }
-
-    // --- HUD ---
-    drawHUD(ctx, W, gd, player);
-
-    // --- Wave indicator ---
-    if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
+    // Wave indicator (screen space) ---
+    if (gameState === 'playing' && gd.betweenWaves && gd.betweenWaveTimer > 30) {
       ctx.save();
       ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
       ctx.fillStyle = COLORS.white;
@@ -590,6 +628,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
       }
       ctx.restore();
+    }
+
+    // Start and gameover screens (screen space)
+    if (gameState === 'start') {
+      drawStartScreen(ctx, W, H);
+    }
+    if (gameState === 'gameover') {
+      drawGameOverScreen(ctx, W, H, gd);
     }
 
   }, [gameState]);
