@@ -8,6 +8,29 @@ export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
 export const STAR_COUNT = 150;
 
+// ===== COMBO SYSTEM =====
+export const COMBO_TIMEOUT = 120; // frames (2 seconds at 60fps)
+export const COMBO_INCREMENT = 1;
+export const COMBO_MULTIPLIER_MAX = 10;
+
+// ===== SCREEN SHAKE =====
+export const SHAKE_INTENSITY_MINOR = 3;
+export const SHAKE_INTENSITY_MAJOR = 8;
+export const SHAKE_DURATION_MINOR = 10;
+export const SHAKE_DURATION_MAJOR = 20;
+
+// ===== ENHANCED PARTICLES =====
+export const PARTICLE_GRAVITY = 0.15;
+export const PARTICLE_FRICTION = 0.98;
+export const JUMP_PARTICLE_COUNT = 12;
+export const LAND_PARTICLE_COUNT = 15;
+export const HIT_SPARK_COUNT = 5;
+export const BOSS_EXPLOSION_PARTICLES = 60;
+
+// ===== POP-UP TEXT =====
+export const POPUP_DURATION = 60;
+export const POPUP_VELOCITY_Y = -1.5;
+
 // ===== COLORS =====
 export const COLORS = {
   cyan: '#00ffff',

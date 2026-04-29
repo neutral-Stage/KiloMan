@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData,
+  Particle, Star, PopUpText, ScreenShake, GameData,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
@@ -18,6 +18,19 @@ import {
   STAR_LAYERS,
   STAR_COUNT,
   COLORS,
+  COMBO_TIMEOUT,
+  SHAKE_INTENSITY_MINOR,
+  SHAKE_INTENSITY_MAJOR,
+  SHAKE_DURATION_MINOR,
+  SHAKE_DURATION_MAJOR,
+  PARTICLE_GRAVITY,
+  PARTICLE_FRICTION,
+  JUMP_PARTICLE_COUNT,
+  LAND_PARTICLE_COUNT,
+  HIT_SPARK_COUNT,
+  BOSS_EXPLOSION_PARTICLES,
+  POPUP_DURATION,
+  POPUP_VELOCITY_Y,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -39,6 +52,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const powerUpsRef = useRef<PowerUp[]>([]);
   const particlesRef = useRef<Particle[]>([]);
   const starsRef = useRef<Star[]>([]);
+  const popUpTextsRef = useRef<PopUpText[]>([]);
+  const screenShakeRef = useRef<ScreenShake>({ intensity: 0, duration: 0, remaining: 0 });
   const gameDataRef = useRef<GameData>(createDefaultGameData());
   const keysRef = useRef<Record<string, boolean>>({});
   const shootCooldownRef = useRef(0);
@@ -72,6 +87,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       waveTimer: 0,
       betweenWaves: true,
       betweenWaveTimer: 60,
+      combo: 0,
+      maxCombo: 0,
+      comboTimer: 0,
     };
   }
 
@@ -155,15 +173,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       enemiesRef.current = [];
       powerUpsRef.current = [];
       particlesRef.current = [];
+      popUpTextsRef.current = [];
       gameDataRef.current = createDefaultGameData();
       shootCooldownRef.current = 0;
       frameRef.current = 0;
+      wasOnGroundRef.current = true;
+      screenShakeRef.current = { intensity: 0, duration: 0, remaining: 0 };
       initStars(w, h);
     }
   }, [gameState, dimensions, initStars]);
 
   // ===== SPAWN HELPERS =====
-  const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
+  const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3, options: { gravity?: number; friction?: number; sizeBase?: number; sizeVar?: number } = {}) => {
+    const gravity = options.gravity ?? PARTICLE_GRAVITY;
+    const friction = options.friction ?? PARTICLE_FRICTION;
+    const sizeBase = options.sizeBase ?? 2;
+    const sizeVar = options.sizeVar ?? 3;
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const spd = speed * (0.5 + Math.random());
@@ -174,10 +199,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         life: 30 + Math.random() * 20,
         maxLife: 50,
         color,
-        size: 2 + Math.random() * 3,
+        size: sizeBase + Math.random() * sizeVar,
+        gravity,
+        friction,
+        rotation: Math.random() * Math.PI * 2,
+        rotationSpeed: (Math.random() - 0.5) * 0.2,
       });
     }
-  }, []);
+  }, [PARTICLE_GRAVITY, PARTICLE_FRICTION]);
 
   const spawnPowerUp = useCallback((x: number, y: number) => {
     if (Math.random() > POWER_UP_DROP_CHANCE) return;
@@ -186,6 +215,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     powerUpsRef.current.push({
       x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
     });
+  }, []);
+
+  const shakeScreen = useCallback((intensity: number, duration: number) => {
+    screenShakeRef.current = {
+      intensity,
+      duration,
+      remaining: duration,
+    };
+  }, []);
+
+  const spawnPopUpText = useCallback((x: number, y: number, text: string, color: string, fontSize: number = 20) => {
+    popUpTextsRef.current.push({
+      x,
+      y,
+      text,
+      life: POPUP_DURATION,
+      maxLife: POPUP_DURATION,
+      color,
+      velocityY: POPUP_VELOCITY_Y,
+      fontSize,
+    });
+  }, []);
+
+  const spawnDamageNumber = useCallback((x: number, y: number, damage: number, isCritical: boolean = false) => {
+    spawnPopUpText(x, y, damage.toString(), isCritical ? COLORS.yellow : COLORS.white, isCritical ? 24 : 18);
   }, []);
 
   const playerShoot = useCallback((player: PlayerShip, w: number) => {
@@ -199,6 +253,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       color: COLORS.cyan, isPlayerBullet: true, vx: 0, vy: -10,
     };
 
+    // Muzzle flash particles
+    spawnParticles(cx, player.y, 4, COLORS.cyan, 1.5, { gravity: -0.1, friction: 0.9, sizeBase: 1.5, sizeVar: 1 });
+
     if (player.powerUps.spreadShot > 0) {
       bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
       bulletsRef.current.push({ ...bulletBase, x: cx - 12, vx: -2 });
@@ -211,7 +268,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     bulletsRef.current = bulletsRef.current.filter(b =>
       b.x > -20 && b.x < w + 20
     );
-  }, []);
+  }, [spawnParticles]);
 
   const enemyShoot = useCallback((enemy: Enemy) => {
     const cx = enemy.x + enemy.width / 2;
@@ -226,21 +283,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
           color: COLORS.red, isPlayerBullet: false,
         });
       }
+      // Boss muzzle flash
+      spawnParticles(cx, cy + 5, 8, COLORS.red, 2, { gravity: 0.1, friction: 0.9, sizeBase: 2, sizeVar: 2 });
     } else {
       bulletsRef.current.push({
         x: cx - 3, y: cy, width: 6, height: 6,
         vx: 0, vy: 4 + Math.random() * 2, damage: 1,
         color: COLORS.orange, isPlayerBullet: false,
       });
+      // Small muzzle flash for regular enemies
+      spawnParticles(cx, cy, 3, COLORS.orange, 1, { gravity: 0, friction: 0.9, sizeBase: 1, sizeVar: 1 });
     }
-  }, []);
+  }, [spawnParticles]);
 
   const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
     player.lives--;
-    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
+    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4, { gravity: 0.1 });
+    shakeScreen(SHAKE_INTENSITY_MINOR, SHAKE_DURATION_MINOR);
     audioRef.current?.playExplosion();
 
     if (player.lives <= 0) {
+      // Game over - major shake
+      shakeScreen(SHAKE_INTENSITY_MAJOR, SHAKE_DURATION_MAJOR * 2);
       // Game over
       const gd = gameDataRef.current;
       if (gd.score > gd.highScore) {
@@ -260,7 +324,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       player.y = H - 80;
       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
     }
-  }, [spawnParticles, setGameState]);
+  }, [spawnParticles, shakeScreen, setGameState]);
 
   const applyPowerUp = useCallback((player: PlayerShip, type: PowerUpType) => {
     switch (type) {
@@ -312,6 +376,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     player.x = Math.max(0, Math.min(W - player.width, player.x));
     player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
 
+    // Thruster particles when moving upward (adds dynamic exhaust)
+    if (keys['ArrowUp'] || keys['KeyW']) {
+      const cx = player.x + player.width / 2;
+      const cy = player.y + player.height;
+      for (let i = 0; i < 2; i++) {
+        particlesRef.current.push({
+          x: cx + (Math.random() - 0.5) * 8,
+          y: cy,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: 2 + Math.random() * 1.5,
+          life: 15 + Math.random() * 10,
+          maxLife: 25,
+          color: Math.random() > 0.5 ? COLORS.cyan : COLORS.orange,
+          size: 2 + Math.random() * 2,
+          gravity: -0.05,
+          friction: 0.95,
+          rotation: Math.random() * Math.PI * 2,
+          rotationSpeed: 0.1,
+        });
+      }
+    }
+
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
     if (keys['Space']) {
@@ -323,6 +409,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (player.powerUps.shield > 0) player.powerUps.shield -= dt;
     if (player.powerUps.speedBoost > 0) player.powerUps.speedBoost -= dt;
     if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
+
+    // --- Combo timer ---
+    if (gd.comboTimer > 0) {
+      gd.comboTimer -= dt;
+      if (gd.comboTimer <= 0) {
+        gd.combo = 0;
+      }
+    }
 
     // --- Stars ---
     starsRef.current.forEach(star => {
@@ -395,10 +489,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     // --- Particles ---
     particlesRef.current.forEach(p => {
+      if (p.friction !== undefined) p.vx *= p.friction;
+      if (p.friction !== undefined) p.vy *= p.friction;
+      if (p.gravity !== undefined) p.vy += p.gravity * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
-      p.size *= 0.98;
+      if (p.size > 0.5) p.size *= 0.995;
+      if (p.rotation !== undefined && p.rotationSpeed !== undefined) {
+        p.rotation += p.rotationSpeed * dt;
+      }
     });
     particlesRef.current = particlesRef.current.filter(p => p.life > 0);
 
@@ -413,20 +513,48 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
           enemy.health -= bullet.damage;
           bullet.destroyed = true;
 
-          if (enemy.health <= 0) {
-            // Enemy destroyed
-            gd.score += enemy.points;
-            gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
-            spawnParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2,
-              enemy.isBoss ? 40 : 15, enemy.color, enemy.isBoss ? 5 : 3);
-            audioRef.current?.playExplosion();
-            spawnPowerUp(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
-            enemy.destroyed = true;
-          } else {
-            // Hit flash
-            spawnParticles(bullet.x, bullet.y, 3, COLORS.white, 1);
-            audioRef.current?.playHit();
-          }
+           if (enemy.health <= 0) {
+             // Enemy destroyed
+             gd.score += enemy.points;
+             gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
+
+             // Combo system
+             gd.combo += COMBO_INCREMENT;
+             gd.comboTimer = COMBO_TIMEOUT;
+             if (gd.combo > gd.maxCombo) {
+               gd.maxCombo = gd.combo;
+             }
+
+             // Bonus score for combo
+             const comboBonus = Math.floor(enemy.points * (gd.combo - 1) * 0.1);
+             if (comboBonus > 0) {
+               gd.score += comboBonus;
+               spawnPopUpText(enemy.x + enemy.width/2, enemy.y, `+${comboBonus}`, COLORS.yellow, 14);
+             }
+
+             // Damage number for enemy kill
+             spawnDamageNumber(enemy.x + enemy.width/2, enemy.y - 10, enemy.points, gd.combo >= 5);
+
+             // Spawn particles
+             spawnParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2,
+               enemy.isBoss ? BOSS_EXPLOSION_PARTICLES : 15, enemy.color, enemy.isBoss ? 5 : 3,
+               { gravity: enemy.isBoss ? 0.2 : PARTICLE_GRAVITY, friction: 0.95 });
+
+             // Screen shake on boss hit or major enemy
+             if (enemy.isBoss) {
+               shakeScreen(SHAKE_INTENSITY_MAJOR, SHAKE_DURATION_MAJOR);
+             } else if (enemy.type === 'tank') {
+               shakeScreen(SHAKE_INTENSITY_MINOR, SHAKE_DURATION_MINOR);
+             }
+
+             audioRef.current?.playExplosion();
+             spawnPowerUp(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+             enemy.destroyed = true;
+           } else {
+             // Hit flash
+             spawnParticles(bullet.x, bullet.y, HIT_SPARK_COUNT, COLORS.white, 1, { gravity: 0, friction: 0.9 });
+             audioRef.current?.playHit();
+           }
           break;
         }
       }
@@ -474,12 +602,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         pu.x, pu.y, pu.width, pu.height)) {
         applyPowerUp(player, pu.type);
         audioRef.current?.playPowerUp();
-        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.green, 2);
+        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.green, 2, { gravity: 0.1 });
+
+        // Pop-up text for power-up
+        let label = '';
+        switch (pu.type) {
+          case 'spread': label = 'SPREAD!'; break;
+          case 'shield': label = 'SHIELD!'; break;
+          case 'speed': label = 'SPEED!'; break;
+          case 'life': label = 'EXTRA LIFE!'; shakeScreen(SHAKE_INTENSITY_MINOR, SHAKE_DURATION_MINOR); break;
+        }
+        spawnPopUpText(pu.x + pu.width/2, pu.y, label, COLORS.green, 16);
+
         powerUpsRef.current.splice(i, 1);
       }
     }
 
-    // --- Wave management ---
+    // --- Pop-up texts ---
+    popUpTextsRef.current.forEach(pu => {
+      pu.y += pu.velocityY * dt;
+      pu.life -= dt;
+    });
+    popUpTextsRef.current = popUpTextsRef.current.filter(pu => pu.life > 0);
+
+    // --- Screen shake ---
+    if (screenShakeRef.current.remaining > 0) {
+      screenShakeRef.current.remaining -= dt;
+    }
     if (gd.betweenWaves) {
       gd.betweenWaveTimer -= dt;
       if (gd.betweenWaveTimer <= 0) {
@@ -508,7 +657,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.highScore = gd.score;
     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
+  }, [gameState, dimensions, spawnParticles, shakeScreen, spawnPopUpText, spawnDamageNumber, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -516,6 +665,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const H = ctx.canvas.height;
     const player = playerRef.current;
     const gd = gameDataRef.current;
+
+    // Calculate screen shake offset
+    let shakeX = 0, shakeY = 0;
+    if (screenShakeRef.current.remaining > 0) {
+      const progress = screenShakeRef.current.remaining / screenShakeRef.current.duration;
+      const intensity = screenShakeRef.current.intensity * progress;
+      shakeX = (Math.random() - 0.5) * intensity * 2;
+      shakeY = (Math.random() - 0.5) * intensity * 2;
+    }
+
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
 
     // Clear
     ctx.fillStyle = '#050510';
@@ -531,66 +692,76 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     if (gameState === 'start') {
       drawStartScreen(ctx, W, H);
-      return;
-    }
-
-    if (gameState === 'gameover') {
+    } else if (gameState === 'gameover') {
       drawGameOverScreen(ctx, W, H, gd);
-      return;
-    }
+    } else {
+      // --- Particles (behind everything) ---
+      particlesRef.current.forEach(p => {
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
 
-    // --- Particles (behind everything) ---
-    particlesRef.current.forEach(p => {
-      ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(0.5, p.size), 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
+      // --- Power-ups ---
+      powerUpsRef.current.forEach(pu => {
+        drawPowerUp(ctx, pu);
+      });
 
-    // --- Power-ups ---
-    powerUpsRef.current.forEach(pu => {
-      drawPowerUp(ctx, pu);
-    });
+      // --- Bullets ---
+      bulletsRef.current.forEach(b => {
+        ctx.fillStyle = b.color;
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(b.x, b.y, b.width, b.height);
+        ctx.shadowBlur = 0;
+      });
 
-    // --- Bullets ---
-    bulletsRef.current.forEach(b => {
-      ctx.fillStyle = b.color;
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 8;
-      ctx.fillRect(b.x, b.y, b.width, b.height);
-      ctx.shadowBlur = 0;
-    });
+      // --- Enemies ---
+      enemiesRef.current.forEach(e => {
+        drawEnemy(ctx, e);
+      });
 
-    // --- Enemies ---
-    enemiesRef.current.forEach(e => {
-      drawEnemy(ctx, e);
-    });
-
-    // --- Player ---
-    if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
-      drawPlayer(ctx, player);
-    }
-
-    // --- HUD ---
-    drawHUD(ctx, W, gd, player);
-
-    // --- Wave indicator ---
-    if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
-      ctx.fillStyle = COLORS.white;
-      ctx.font = 'bold 36px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, H / 2);
-      if (gd.wave > 0 && gd.wave % BOSS_WAVE_INTERVAL === 0) {
-        ctx.fillStyle = COLORS.red;
-        ctx.font = 'bold 24px monospace';
-        ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
+      // --- Player ---
+      if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
+        drawPlayer(ctx, player);
       }
-      ctx.restore();
+
+      // --- HUD ---
+      drawHUD(ctx, W, gd, player);
+
+      // --- Pop-up texts ---
+      popUpTextsRef.current.forEach(pu => {
+        const alpha = Math.max(0, pu.life / pu.maxLife);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = pu.color;
+        ctx.font = `bold ${pu.fontSize}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(pu.text, pu.x, pu.y);
+        ctx.restore();
+      });
+
+      // --- Wave indicator ---
+      if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
+        ctx.fillStyle = COLORS.white;
+        ctx.font = 'bold 36px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, H / 2);
+        if (gd.wave > 0 && gd.wave % BOSS_WAVE_INTERVAL === 0) {
+          ctx.fillStyle = COLORS.red;
+          ctx.font = 'bold 24px monospace`;
+          ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
+        }
+        ctx.restore();
+      }
     }
+
+    ctx.restore(); // Undo screen shake translation
 
   }, [gameState]);
 
@@ -904,7 +1075,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const pad = 15;
     const fontSize = Math.min(18, W * 0.022);
 
-    // Score
+    // Score with smooth animation using sine wave for emphasis
     ctx.fillStyle = COLORS.white;
     ctx.font = `bold ${fontSize}px monospace`;
     ctx.textAlign = 'left';
@@ -921,41 +1092,77 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.textAlign = 'center';
     ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, pad + fontSize);
 
-    // Lives
+    // Combo counter with pulsing effect
+    if (gd.combo > 1) {
+      const pulse = 1 + Math.sin(frameRef.current * 0.2) * 0.15;
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.font = `bold ${fontSize * 0.9 * pulse}px monospace`;
+      const comboColor = gd.combo >= 10 ? COLORS.magenta : (gd.combo >= 5 ? COLORS.yellow : COLORS.orange);
+      ctx.fillStyle = comboColor;
+      ctx.shadowColor = comboColor;
+      ctx.shadowBlur = 10 * pulse;
+      ctx.fillText(`${gd.combo} COMBO`, W / 2, pad + fontSize * 2.5);
+      ctx.restore();
+    }
+
+    // Lives with heart animation
     ctx.textAlign = 'right';
     ctx.fillStyle = COLORS.white;
     ctx.font = `bold ${fontSize}px monospace`;
     const livesText = '♥'.repeat(player.lives);
     ctx.fillText(livesText, W - pad, pad + fontSize);
 
-    // Health bar
+    // Health bar with smooth color transition
     const barW = 100;
     const barH = 8;
     const barX = W - pad - barW;
     const barY = pad + fontSize + 10;
     ctx.fillStyle = '#333';
     ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = player.health > 1 ? COLORS.green : COLORS.red;
-    ctx.fillRect(barX, barY, barW * (player.health / player.maxHealth), barH);
+    const healthPercent = player.health / player.maxHealth;
+    // Smooth color gradient from green to yellow to red
+    let healthColor: string;
+    if (healthPercent > 0.5) {
+      healthColor = COLORS.green;
+    } else if (healthPercent > 0.25) {
+      healthColor = COLORS.yellow;
+    } else {
+      healthColor = COLORS.red;
+    }
+    ctx.fillStyle = healthColor;
+    ctx.fillRect(barX, barY, barW * healthPercent, barH);
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barW, barH);
 
-    // Active power-ups indicators
+    // Active power-ups indicators with fade transition
     let puY = barY + barH + 10;
     const puFontSize = fontSize * 0.7;
     ctx.font = `${puFontSize}px monospace`;
     ctx.textAlign = 'right';
     if (player.powerUps.spreadShot > 0) {
       ctx.fillStyle = COLORS.magenta;
+      ctx.shadowColor = COLORS.magenta;
+      ctx.shadowBlur = 5;
       ctx.fillText('SPREAD', W - pad, puY + puFontSize);
+      ctx.shadowBlur = 0;
       puY += puFontSize + 4;
     }
     if (player.powerUps.shield > 0) {
       ctx.fillStyle = COLORS.cyan;
+      ctx.shadowColor = COLORS.cyan;
+      ctx.shadowBlur = 5;
       ctx.fillText('SHIELD', W - pad, puY + puFontSize);
+      ctx.shadowBlur = 0;
       puY += puFontSize + 4;
     }
     if (player.powerUps.speedBoost > 0) {
       ctx.fillStyle = COLORS.green;
+      ctx.shadowColor = COLORS.green;
+      ctx.shadowBlur = 5;
       ctx.fillText('SPEED+', W - pad, puY + puFontSize);
+      ctx.shadowBlur = 0;
     }
 
     ctx.restore();

@@ -86,6 +86,27 @@ export interface Particle {
   maxLife: number;
   color: string;
   size: number;
+  gravity?: number;
+  friction?: number;
+  rotation?: number;
+  rotationSpeed?: number;
+}
+
+export interface PopUpText {
+  x: number;
+  y: number;
+  text: string;
+  life: number;
+  maxLife: number;
+  color: string;
+  velocityY: number;
+  fontSize: number;
+}
+
+export interface ScreenShake {
+  intensity: number;
+  duration: number;
+  remaining: number;
 }
 
 export interface Star {
@@ -114,4 +135,7 @@ export interface GameData {
   waveTimer: number;
   betweenWaves: boolean;
   betweenWaveTimer: number;
+  combo: number;
+  maxCombo: number;
+  comboTimer: number;
 }
