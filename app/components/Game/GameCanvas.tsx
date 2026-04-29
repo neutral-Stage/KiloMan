@@ -103,31 +103,30 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       const platformX = Math.random() * (w - platformWidth);
       const platformHeight = 16 + Math.random() * 12;
 
-      platforms.push({
-        x: platformX,
-        y: platformY,
-        width: platformWidth,
-        height: platformHeight,
-        color: COLORS.platform,
-      });
+       platforms.push({
+         x: platformX,
+         y: platformY,
+         width: platformWidth,
+         height: platformHeight,
+       });
     }
 
     platformsRef.current = platforms;
   }, []);
 
-  // Resize handler
-  useEffect(() => {
-    const handleResize = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      setDimensions({ width: w, height: h });
-      initStars(w, h);
-      initPlatforms(w, h);
-    };
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [initStars, initPlatforms]);
+   // Resize handler
+   useEffect(() => {
+     const handleResize = () => {
+       const w = window.innerWidth;
+       const h = window.innerHeight;
+       setDimensions({ width: w, height: h });
+       initStars(w, h);
+       // Don't re-init platforms on resize to prevent them from vanishing during gameplay
+     };
+     handleResize();
+     window.addEventListener('resize', handleResize);
+     return () => window.removeEventListener('resize', handleResize);
+   }, [initStars]);
 
   // Load logo
   useEffect(() => {
@@ -506,16 +505,47 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       }
     }
 
-    // --- Collision: Player vs platforms ---
-    platformsRef.current.forEach(platform => {
-      if (rectsOverlap(player.x, player.y, player.width, player.height,
-        platform.x, platform.y, platform.width, platform.height)) {
-        // Simple platform collision response - prevent falling through
-        if (player.y + player.height > platform.y && player.y < platform.y + platform.height / 2) {
-          player.y = platform.y - player.height;
-        }
-      }
-    });
+     // --- Collision: Player vs platforms ---
+     platformsRef.current.forEach(platform => {
+       if (rectsOverlap(player.x, player.y, player.width, player.height,
+         platform.x, platform.y, platform.width, platform.height)) {
+         // Calculate penetration depths
+         const playerBottom = player.y + player.height;
+         const playerTop = player.y;
+         const playerLeft = player.x;
+         const playerRight = player.x + player.width;
+         
+         const platformTop = platform.y;
+         const platformBottom = platform.y + platform.height;
+         const platformLeft = platform.x;
+         const platformRight = platform.x + platform.width;
+         
+         // Calculate how much we're overlapping on each axis
+         const overlapX = Math.min(playerRight, platformRight) - Math.max(playerLeft, platformLeft);
+         const overlapY = Math.min(playerBottom, platformBottom) - Math.max(playerTop, platformTop);
+         
+         // Resolve collision on the axis of least penetration
+         if (overlapX < overlapY) {
+           // Horizontal collision
+           if (player.x < platform.x) {
+             // Hit from left
+             player.x = platformLeft - player.width;
+           } else {
+             // Hit from right
+             player.x = platformRight;
+           }
+         } else {
+           // Vertical collision
+           if (player.y < platform.y) {
+             // Hit from above (landing on platform)
+             player.y = platformTop - player.height;
+           } else {
+             // Hit from below (bumping head)
+             player.y = platformBottom;
+           }
+         }
+       }
+     });
 
     // --- Wave management ---
     if (gd.betweenWaves) {
@@ -577,10 +607,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       return;
     }
 
-    // --- Platforms (with depth effects) ---
-    platformsRef.current.forEach(platform => {
-      drawPlatform(ctx, platform, 0);
-    });
+     // --- Platforms (with depth effects) ---
+     platformsRef.current.forEach(platform => {
+       drawPlatform(ctx, platform);
+     });
 
     // --- Particles (behind most entities) ---
     particlesRef.current.forEach(p => {
@@ -942,9 +972,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.restore();
   }
 
-  function drawPlatform(ctx: CanvasRenderingContext2D, platform: Platform, cameraX: number) {
-    const x = platform.x - cameraX;
-    const { y, width, height } = platform;
+function drawPlatform(ctx: CanvasRenderingContext2D, platform: Platform) {
+  const x = platform.x;
+  const { y, width, height } = platform;
 
     ctx.save();
 

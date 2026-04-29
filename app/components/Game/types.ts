@@ -101,7 +101,6 @@ export interface Platform {
   y: number;
   width: number;
   height: number;
-  color: string;
 }
 
 export interface WaveConfig {
