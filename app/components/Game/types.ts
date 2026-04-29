@@ -10,6 +10,8 @@ export interface Vec2 {
 export interface PlayerShip {
   x: number;
   y: number;
+  vx: number;
+  vy: number;
   width: number;
   height: number;
   speed: number;
@@ -19,6 +21,7 @@ export interface PlayerShip {
   invincibleTimer: number; // frames of invincibility remaining
   powerUps: ActivePowerUps;
   thrusterFrame: number;
+  thrustParticlesTimer: number;
 }
 
 export interface ActivePowerUps {

@@ -8,6 +8,13 @@ export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
 export const STAR_COUNT = 150;
 
+// ===== MOVEMENT PHYSICS =====
+export const PLAYER_ACCELERATION = 0.4;
+export const PLAYER_DECELERATION = 0.85;
+export const PLAYER_MAX_SPEED = 5.0;
+export const PLAYER_SPEED_BOOST_MULTIPLIER = 1.6;
+export const THRUSTER_PARTICLE_SPAWN_RATE = 3; // particles per frame
+
 // ===== COLORS =====
 export const COLORS = {
   cyan: '#00ffff',

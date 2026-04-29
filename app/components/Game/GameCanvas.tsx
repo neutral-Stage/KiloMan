@@ -17,6 +17,11 @@ import {
   BETWEEN_WAVE_DELAY,
   STAR_LAYERS,
   STAR_COUNT,
+  PLAYER_ACCELERATION,
+  PLAYER_DECELERATION,
+  PLAYER_MAX_SPEED,
+  PLAYER_SPEED_BOOST_MULTIPLIER,
+  THRUSTER_PARTICLE_SPAWN_RATE,
   COLORS,
 } from './constants';
 
@@ -49,10 +54,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
       x: cx - 20, y: cy, width: 40, height: 44,
+      vx: 0, vy: 0,
       speed: 5, health: 3, maxHealth: 3, lives: 3,
       invincibleTimer: 0,
       powerUps: { spreadShot: 0, shield: 0, speedBoost: 0 },
       thrusterFrame: 0,
+      thrustParticlesTimer: 0,
     };
   }
 
@@ -162,6 +169,41 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     }
   }, [gameState, dimensions, initStars]);
 
+  // Landing detection effect - spawn dust particles on hard landings
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    
+    let lastPlayerY = playerRef.current.y;
+    let lastPlayerVY = 0;
+    
+    const checkLanding = () => {
+      const player = playerRef.current;
+      const yDiff = player.y - lastPlayerY;
+      const wasDescending = lastPlayerVY > 0.5;
+      const isNowSlow = Math.abs(player.vy) < 0.5;
+      
+      // Detect hard landing (quick descent followed by settling)
+      if (wasDescending && isNowSlow && yDiff > 0) {
+        const fallSpeed = lastPlayerVY;
+        if (fallSpeed > 1) {
+          // Emit landing dust particles
+          spawnDustParticles(
+            player.x + player.width / 2,
+            player.y + player.height - 2,
+            Math.min(10, Math.floor(fallSpeed * 3))
+          );
+          audioRef.current?.playLanding();
+        }
+      }
+      
+      lastPlayerY = player.y;
+      lastPlayerVY = player.vy;
+    };
+    
+    const interval = setInterval(checkLanding, 100); // Check every 100ms
+    return () => clearInterval(interval);
+  }, [gameState, spawnDustParticles]);
+
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
     for (let i = 0; i < count; i++) {
@@ -175,6 +217,45 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         maxLife: 50,
         color,
         size: 2 + Math.random() * 3,
+      });
+    }
+  }, []);
+
+  // Spawn dust/slip particles (for ground friction / landing effects)
+  const spawnDustParticles = useCallback((x: number, y: number, count: number, speed = 1) => {
+    for (let i = 0; i < count; i++) {
+      particlesRef.current.push({
+        x: x + (Math.random() - 0.5) * 20,
+        y: y + (Math.random() - 0.5) * 5,
+        vx: (Math.random() - 0.5) * speed * 2,
+        vy: Math.random() * -speed - 0.5,
+        life: 15 + Math.random() * 15,
+        maxLife: 30,
+        color: COLORS.cyan,
+        size: 1 + Math.random() * 2,
+      });
+    }
+  }, []);
+
+  // Spawn directional thrust trail
+  const spawnThrustTrail = useCallback((x: number, y: number, vx: number, vy: number) => {
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    if (speed < 1) return;
+    
+    const angle = Math.atan2(vy, vx) + Math.PI;
+    const intensity = Math.min(speed / 5, 1);
+    
+    for (let i = 0; i < Math.ceil(intensity * 2); i++) {
+      const spread = (Math.random() - 0.5) * 1;
+      particlesRef.current.push({
+        x: x + Math.cos(angle + Math.PI) * 15 + (Math.random() - 0.5) * 10,
+        y: y + Math.sin(angle + Math.PI) * 15,
+        vx: Math.cos(angle + spread) * (3 + Math.random() * 4) - vx * 0.5,
+        vy: Math.sin(angle + spread) * (3 + Math.random() * 4) - vy * 0.5,
+        life: 10 + Math.random() * 10,
+        maxLife: 20,
+        color: Math.random() > 0.5 ? COLORS.orange : COLORS.cyan,
+        size: 1.5 + Math.random() * 2,
       });
     }
   }, []);
@@ -237,11 +318,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
   const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
     player.lives--;
+    // Reset velocity on hit
+    player.vx = 0;
+    player.vy = 0;
+    // Enhanced hit feedback with multiple particle bursts
     spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
+    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 15, COLORS.red, 3);
+    // Screen shake effect via UI (can be handled by parent)
     audioRef.current?.playExplosion();
 
     if (player.lives <= 0) {
-      // Game over
+      // Game over - massive explosion
+      spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 40, COLORS.red, 6);
+      spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 30, COLORS.orange, 5);
       const gd = gameDataRef.current;
       if (gd.score > gd.highScore) {
         gd.highScore = gd.score;
@@ -259,6 +348,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       player.x = W / 2 - player.width / 2;
       player.y = H - 80;
       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
+      // Spawn respawn particles
+      spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 15, COLORS.cyan, 2);
     }
   }, [spawnParticles, setGameState]);
 
@@ -301,16 +392,102 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     frameRef.current++;
     player.thrusterFrame++;
 
-    // --- Player Movement ---
-    const moveSpeed = player.speed * (player.powerUps.speedBoost > 0 ? 1.6 : 1) * dt;
-    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= moveSpeed;
-    if (keys['ArrowRight'] || keys['KeyD']) player.x += moveSpeed;
-    if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
-    if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
+    // --- Player Movement (Acceleration-based for weightier feel) ---
+    const currentSpeed = PLAYER_MAX_SPEED * (player.powerUps.speedBoost > 0 ? PLAYER_SPEED_BOOST_MULTIPLIER : 1);
+    let ax = 0, ay = 0;
+    let thrusting = false;
+    
+    if (keys['ArrowLeft'] || keys['KeyA']) { ax -= 1; thrusting = true; }
+    if (keys['ArrowRight'] || keys['KeyD']) { ax += 1; thrusting = true; }
+    if (keys['ArrowUp'] || keys['KeyW']) { ay -= 1; thrusting = true; }
+    if (keys['ArrowDown'] || keys['KeyS']) { ay += 1; thrusting = true; }
+
+    // Normalize diagonal movement and apply acceleration
+    if (ax !== 0 && ay !== 0) {
+      ax *= 0.7071; // 1/sqrt(2)
+      ay *= 0.7071;
+    }
+
+    // Apply acceleration to velocity
+    player.vx += ax * PLAYER_ACCELERATION * dt;
+    player.vy += ay * PLAYER_ACCELERATION * dt;
+
+    // Apply deceleration when no input
+    if (ax === 0 && ay === 0) {
+      player.vx *= PLAYER_DECELERATION;
+      player.vy *= PLAYER_DECELERATION;
+    }
+
+    // Clamp velocity to max speed
+    const currentVel = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+    if (currentVel > currentSpeed) {
+      player.vx = (player.vx / currentVel) * currentSpeed;
+      player.vy = (player.vy / currentVel) * currentSpeed;
+    }
+
+    // Minimum velocity threshold - stop drifting
+    if (Math.abs(player.vx) < 0.1 && ax === 0) player.vx *= 0.85;
+    if (Math.abs(player.vy) < 0.1 && ay === 0) player.vy *= 0.85;
+
+    // Update position from velocity
+    const prevX = player.x;
+    const prevY = player.y;
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
 
     // Clamp to screen
     player.x = Math.max(0, Math.min(W - player.width, player.x));
     player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
+
+    // Handle thrust particles when moving
+    if (thrusting || currentVel > 0.5) {
+      player.thrusterFrame++;
+      
+      // Spawn thrust particles
+      if (player.thrustParticlesTimer <= 0 && (ax !== 0 || ay !== 0 || currentVel > 0.5)) {
+        player.thrustParticlesTimer = THRUSTER_PARTICLE_SPAWN_RATE;
+        // Spawn particles from rear of ship
+        const cx = player.x + player.width / 2;
+        const cy = player.y + player.height;
+        const angle = Math.atan2(player.vy, player.vx || 0.001) + Math.PI;
+        for (let i = 0; i < 2; i++) {
+          const spread = (Math.random() - 0.5) * 1.5;
+          particlesRef.current.push({
+            x: cx + Math.cos(angle + Math.PI) * 10 + (Math.random() - 0.5) * 8,
+            y: cy + Math.sin(angle + Math.PI) * 10,
+            vx: Math.cos(angle + spread) * (2 + Math.random() * 3) - (player.vx * 0.3),
+            vy: Math.sin(angle + spread) * (2 + Math.random() * 3) - (player.vy * 0.3),
+            life: 15 + Math.random() * 10,
+            maxLife: 25,
+            color: Math.random() > 0.5 ? COLORS.orange : COLORS.cyan,
+            size: 2 + Math.random() * 3,
+          });
+        }
+        // Play thrust sound occasionally
+        if (Math.random() > 0.7 && audioRef.current) {
+          audioRef.current.playThrust();
+        }
+      }
+      player.thrustParticlesTimer--;
+    }
+
+    // Landing/settling detection - play sound when coming to rest
+    const settlingThreshold = 0.5;
+    if (!thrusting && currentVel < settlingThreshold && prevX !== player.x && frameRef.current % 60 < 2) {
+      // Check if we just recently settled
+      const speedSq = player.vx * player.vx + player.vy * player.vy;
+      if (speedSq < 0.25 && speedSq > 0) {
+        // Near rest - emit subtle dust particles
+        if (Math.random() > 0.95) {
+          spawnDustParticles(
+            player.x + player.width / 2,
+            player.y + player.height - 5,
+            2
+          );
+        }
+      }
+    }
+
 
     // --- Shooting (auto-fire or space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
@@ -417,14 +594,44 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
             // Enemy destroyed
             gd.score += enemy.points;
             gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
-            spawnParticles(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2,
-              enemy.isBoss ? 40 : 15, enemy.color, enemy.isBoss ? 5 : 3);
+            // Massive explosion with shockwave-like particles
+            const cx = enemy.x + enemy.width / 2;
+            const cy = enemy.y + enemy.height / 2;
+            const count = enemy.isBoss ? 50 : 20;
+            const speed = enemy.isBoss ? 6 : 4;
+            for (let i = 0; i < count; i++) {
+              const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+              const spd = speed * (0.5 + Math.random());
+              particlesRef.current.push({
+                x: cx, y: cy,
+                vx: Math.cos(angle) * spd,
+                vy: Math.sin(angle) * spd,
+                life: 30 + Math.random() * 20,
+                maxLife: 50,
+                color: enemy.isBoss ? (i % 3 === 0 ? COLORS.red : COLORS.orange) : enemy.color,
+                size: enemy.isBoss ? (3 + Math.random() * 4) : (2 + Math.random() * 3),
+              });
+            }
+            // Secondary inner burst
+            for (let i = 0; i < (enemy.isBoss ? 20 : 8); i++) {
+              const angle = Math.random() * Math.PI * 2;
+              particlesRef.current.push({
+                x: cx, y: cy,
+                vx: Math.cos(angle) * (1 + Math.random() * 2),
+                vy: Math.sin(angle) * (1 + Math.random() * 2),
+                life: 15 + Math.random() * 15,
+                maxLife: 30,
+                color: COLORS.yellow,
+                size: 1 + Math.random() * 2,
+              });
+            }
             audioRef.current?.playExplosion();
-            spawnPowerUp(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+            spawnPowerUp(cx, cy);
             enemy.destroyed = true;
           } else {
-            // Hit flash
-            spawnParticles(bullet.x, bullet.y, 3, COLORS.white, 1);
+            // Hit flash - enhanced
+            spawnParticles(bullet.x, bullet.y, 5, COLORS.white, 2);
+            spawnDustParticles(bullet.x, bullet.y, 3, 1);
             audioRef.current?.playHit();
           }
           break;
@@ -474,7 +681,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         pu.x, pu.y, pu.width, pu.height)) {
         applyPowerUp(player, pu.type);
         audioRef.current?.playPowerUp();
-        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.green, 2);
+        // Enhanced collection feedback - burst plus trailing sparkles
+        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 12, COLORS.green, 3);
+        // Add a secondary ring of particles
+        for (let j = 0; j < 6; j++) {
+          const angle = (Math.PI * 2 * j) / 6;
+          particlesRef.current.push({
+            x: pu.x + pu.width / 2,
+            y: pu.y + pu.height / 2,
+            vx: Math.cos(angle) * 4,
+            vy: Math.sin(angle) * 4,
+            life: 20 + Math.random() * 10,
+            maxLife: 30,
+            color: pu.type === 'shield' ? COLORS.cyan : pu.type === 'spread' ? COLORS.magenta : pu.type === 'speed' ? COLORS.green : COLORS.red,
+            size: 2 + Math.random() * 2,
+          });
+        }
         powerUpsRef.current.splice(i, 1);
       }
     }
@@ -508,7 +730,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.highScore = gd.score;
     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
+  }, [gameState, dimensions, spawnParticles, spawnDustParticles, spawnThrustTrail, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
