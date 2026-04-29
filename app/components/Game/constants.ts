@@ -26,6 +26,9 @@ export const JUMP_PARTICLE_COUNT = 12;
 export const LAND_PARTICLE_COUNT = 15;
 export const HIT_SPARK_COUNT = 5;
 export const BOSS_EXPLOSION_PARTICLES = 60;
+export const CRITICAL_HIT_PARTICLES = 20;
+export const JUMP_TAKEOFF_PARTICLES = 8;
+export const LANDING_DUST_PARTICLES = 12;
 
 // ===== POP-UP TEXT =====
 export const POPUP_DURATION = 60;

@@ -101,12 +101,17 @@ export interface PopUpText {
   color: string;
   velocityY: number;
   fontSize: number;
+  scale?: number;
+  targetScale?: number;
+  opacity?: number;
 }
 
 export interface ScreenShake {
   intensity: number;
   duration: number;
   remaining: number;
+  rotationIntensity?: number;
+  pattern?: 'random' | 'sine' | 'sharp';
 }
 
 export interface Star {

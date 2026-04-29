@@ -19,6 +19,7 @@ import {
   STAR_COUNT,
   COLORS,
   COMBO_TIMEOUT,
+  COMBO_INCREMENT,
   SHAKE_INTENSITY_MINOR,
   SHAKE_INTENSITY_MAJOR,
   SHAKE_DURATION_MINOR,
@@ -60,6 +61,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const frameRef = useRef(0);
   const audioRef = useRef<AudioEngine | null>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
+  const wasOnGroundRef = useRef(true);
+  const lastPlayerYRef = useRef(0);
 
   function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     return {
@@ -178,10 +181,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       shootCooldownRef.current = 0;
       frameRef.current = 0;
       wasOnGroundRef.current = true;
+      lastPlayerYRef.current = h - 80;
       screenShakeRef.current = { intensity: 0, duration: 0, remaining: 0 };
       initStars(w, h);
     }
   }, [gameState, dimensions, initStars]);
+
+  // ===== EASING HELPERS =====
+  const easeOutCubic = useCallback((t: number): number => {
+    return 1 - Math.pow(1 - t, 3);
+  }, []);
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3, options: { gravity?: number; friction?: number; sizeBase?: number; sizeVar?: number } = {}) => {
@@ -217,11 +226,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
   }, []);
 
-  const shakeScreen = useCallback((intensity: number, duration: number) => {
+  const shakeScreen = useCallback((intensity: number, duration: number, options: { rotationIntensity?: number; pattern?: 'random' | 'sine' | 'sharp' } = {}) => {
+    const current = screenShakeRef.current;
+    if (current.remaining > 0 && intensity <= current.intensity * 0.5) {
+      return;
+    }
     screenShakeRef.current = {
       intensity,
       duration,
       remaining: duration,
+      rotationIntensity: options.rotationIntensity ?? (intensity * 0.01),
+      pattern: options.pattern || 'random',
     };
   }, []);
 
@@ -235,6 +250,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       color,
       velocityY: POPUP_VELOCITY_Y,
       fontSize,
+      scale: 0,
+      targetScale: 1,
+      opacity: 1,
+    });
+  }, []);
+
+  const spawnCriticalPopUp = useCallback((x: number, y: number, text: string, color: string) => {
+    popUpTextsRef.current.push({
+      x,
+      y,
+      text,
+      life: POPUP_DURATION * 1.5,
+      maxLife: POPUP_DURATION * 1.5,
+      color,
+      velocityY: POPUP_VELOCITY_Y * 1.2,
+      fontSize: 28,
+      scale: 0,
+      targetScale: 1.5,
+      opacity: 1,
     });
   }, []);
 
@@ -303,8 +337,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     audioRef.current?.playExplosion();
 
     if (player.lives <= 0) {
-      // Game over - major shake
-      shakeScreen(SHAKE_INTENSITY_MAJOR, SHAKE_DURATION_MAJOR * 2);
+      // Game over - major shake with intense pattern
+      shakeScreen(SHAKE_INTENSITY_MAJOR * 1.5, SHAKE_DURATION_MAJOR * 2, {
+        pattern: 'sharp',
+        rotationIntensity: 0.05,
+      });
+      // Game over - critical pop-up
+      spawnCriticalPopUp(player.x + player.width / 2, player.y + player.height / 2, 'GAME OVER', COLORS.red);
       // Game over
       const gd = gameDataRef.current;
       if (gd.score > gd.highScore) {
@@ -367,6 +406,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     // --- Player Movement ---
     const moveSpeed = player.speed * (player.powerUps.speedBoost > 0 ? 1.6 : 1) * dt;
+    const prevY = player.y;
     if (keys['ArrowLeft'] || keys['KeyA']) player.x -= moveSpeed;
     if (keys['ArrowRight'] || keys['KeyD']) player.x += moveSpeed;
     if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
@@ -375,6 +415,43 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     // Clamp to screen
     player.x = Math.max(0, Math.min(W - player.width, player.x));
     player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
+
+    // --- Jump/Landing Particles ---
+    const isOnGround = player.y >= H - player.height - 10;
+    const wasOnGround = wasOnGroundRef.current;
+    if (player.y < prevY && Math.abs(player.y - prevY) > 2 && wasOnGround && !isOnGround) {
+      spawnParticles(player.x + player.width / 2, player.y + player.height, 8, COLORS.cyan, 2.5, {
+        gravity: 0.15,
+        friction: 0.92,
+        sizeBase: 2,
+        sizeVar: 2,
+      });
+      spawnParticles(player.x + player.width / 2, player.y + player.height, 5, COLORS.orange, 1.5, {
+        gravity: 0.2,
+        friction: 0.95,
+        sizeBase: 1.5,
+        sizeVar: 1.5,
+      });
+    }
+    if (isOnGround && !wasOnGround) {
+      spawnParticles(player.x + player.width / 2, player.y + player.height, LAND_PARTICLE_COUNT, COLORS.orange, 2.5, {
+        gravity: 0.25,
+        friction: 0.9,
+        sizeBase: 2.5,
+        sizeVar: 3,
+      });
+      spawnParticles(player.x + player.width / 2, player.y + player.height, 6, COLORS.yellow, 2, {
+        gravity: 0.1,
+        friction: 0.96,
+        sizeBase: 1.5,
+        sizeVar: 1.5,
+      });
+      if (Math.abs(player.y - prevY) > 5) {
+        shakeScreen(SHAKE_INTENSITY_MINOR * 0.5, SHAKE_DURATION_MINOR * 0.5);
+      }
+    }
+    wasOnGroundRef.current = isOnGround;
+    lastPlayerYRef.current = player.y;
 
     // Thruster particles when moving upward (adds dynamic exhaust)
     if (keys['ArrowUp'] || keys['KeyW']) {
@@ -572,6 +649,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
             spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
             audioRef.current?.playHit();
           } else {
+            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 8, COLORS.yellow, 3, {
+              gravity: 0.1,
+              friction: 0.9,
+              sizeBase: 2,
+              sizeVar: 2,
+            });
+            spawnCriticalPopUp(player.x + player.width / 2, player.y - 20, 'HIT!', COLORS.red);
             playerHit(player, W, H);
           }
           break;
@@ -612,7 +696,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
           case 'speed': label = 'SPEED!'; break;
           case 'life': label = 'EXTRA LIFE!'; shakeScreen(SHAKE_INTENSITY_MINOR, SHAKE_DURATION_MINOR); break;
         }
-        spawnPopUpText(pu.x + pu.width/2, pu.y, label, COLORS.green, 16);
+        if (pu.type === 'life') {
+          spawnCriticalPopUp(pu.x + pu.width/2, pu.y, label, COLORS.red);
+        } else {
+          spawnPopUpText(pu.x + pu.width/2, pu.y, label, COLORS.green, 16);
+        }
 
         powerUpsRef.current.splice(i, 1);
       }
@@ -667,15 +755,37 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const gd = gameDataRef.current;
 
     // Calculate screen shake offset
-    let shakeX = 0, shakeY = 0;
-    if (screenShakeRef.current.remaining > 0) {
-      const progress = screenShakeRef.current.remaining / screenShakeRef.current.duration;
-      const intensity = screenShakeRef.current.intensity * progress;
-      shakeX = (Math.random() - 0.5) * intensity * 2;
-      shakeY = (Math.random() - 0.5) * intensity * 2;
+    let shakeX = 0, shakeY = 0, shakeRotation = 0;
+    const shake = screenShakeRef.current;
+    if (shake.remaining > 0) {
+      const progress = shake.remaining / shake.duration;
+      const intensity = shake.intensity * progress;
+      const pattern = shake.pattern || 'random';
+      let offsetX = 0, offsetY = 0;
+      
+      if (pattern === 'sine') {
+        const time = frameRef.current * 0.15;
+        offsetX = Math.sin(time) * intensity * 1.5;
+        offsetY = Math.cos(time * 0.7) * intensity * 1.5;
+      } else if (pattern === 'sharp') {
+        const t = frameRef.current % 5;
+        offsetX = (t < 2 ? -1 : 1) * intensity * (1 + progress);
+        offsetY = (t < 3 ? -1 : 1) * intensity * (1 + progress) * 0.5;
+      } else {
+        offsetX = (Math.random() - 0.5) * intensity * 2;
+        offsetY = (Math.random() - 0.5) * intensity * 2;
+      }
+      shakeX = offsetX;
+      shakeY = offsetY;
+      shakeRotation = (Math.random() - 0.5) * (shake.rotationIntensity || 0) * intensity;
     }
 
     ctx.save();
+    if (shakeRotation !== 0) {
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(shakeRotation);
+      ctx.translate(-W / 2, -H / 2);
+    }
     ctx.translate(shakeX, shakeY);
 
     // Clear
@@ -734,13 +844,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
       // --- Pop-up texts ---
       popUpTextsRef.current.forEach(pu => {
-        const alpha = Math.max(0, pu.life / pu.maxLife);
+        const progress = 1 - (pu.life / pu.maxLife);
+        
+        const targetScale = pu.targetScale || 1;
+        let currentScale;
+        if (progress < 0.15) {
+          const t = progress / 0.15;
+          currentScale = easeOutCubic(t) * targetScale;
+        } else {
+          currentScale = targetScale;
+        }
+        const opacity = pu.opacity ?? 1;
+        
         ctx.save();
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = opacity;
         ctx.fillStyle = pu.color;
         ctx.font = `bold ${pu.fontSize}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(pu.text, pu.x, pu.y);
+        ctx.textBaseline = 'middle';
+        ctx.translate(pu.x, pu.y);
+        ctx.scale(currentScale, currentScale);
+        ctx.fillText(pu.text, 0, 0);
         ctx.restore();
       });
 
@@ -754,7 +878,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
         ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, H / 2);
         if (gd.wave > 0 && gd.wave % BOSS_WAVE_INTERVAL === 0) {
           ctx.fillStyle = COLORS.red;
-          ctx.font = 'bold 24px monospace`;
+
           ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
         }
         ctx.restore();
@@ -1079,7 +1203,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.fillStyle = COLORS.white;
     ctx.font = `bold ${fontSize}px monospace`;
     ctx.textAlign = 'left';
-    ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, pad, pad + fontSize);
+    const scorePulse = 1 + Math.sin(frameRef.current * 0.15) * 0.05;
+    ctx.save();
+    ctx.scale(scorePulse, scorePulse);
+    ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, pad / scorePulse, (pad + fontSize) / scorePulse);
+    ctx.restore();
 
     // High score
     ctx.fillStyle = COLORS.yellow;
@@ -1092,17 +1220,32 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     ctx.textAlign = 'center';
     ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, pad + fontSize);
 
-    // Combo counter with pulsing effect
+    // Combo counter with enhanced scaling animation
     if (gd.combo > 1) {
-      const pulse = 1 + Math.sin(frameRef.current * 0.2) * 0.15;
+      const comboColor = gd.combo >= 15 ? COLORS.magenta : (gd.combo >= 10 ? COLORS.yellow : (gd.combo >= 5 ? COLORS.orange : COLORS.cyan));
+      const pulse = 1 + Math.sin(frameRef.current * 0.2) * 0.1;
+      const comboScale = Math.min(1.5, 1 + (gd.combo * 0.03)) * pulse;
+      
       ctx.save();
       ctx.textAlign = 'center';
-      ctx.font = `bold ${fontSize * 0.9 * pulse}px monospace`;
-      const comboColor = gd.combo >= 10 ? COLORS.magenta : (gd.combo >= 5 ? COLORS.yellow : COLORS.orange);
+      ctx.font = `bold ${fontSize * 0.95 * comboScale}px monospace`;
       ctx.fillStyle = comboColor;
       ctx.shadowColor = comboColor;
-      ctx.shadowBlur = 10 * pulse;
-      ctx.fillText(`${gd.combo} COMBO`, W / 2, pad + fontSize * 2.5);
+      ctx.shadowBlur = 12 * pulse;
+      ctx.fillText(`${gd.combo}x MULTIPLIER`, W / 2, pad + fontSize * 2.5);
+      
+      let tierText = '';
+      if (gd.combo >= 15) tierText = '🔥 HOT STREAK!';
+      else if (gd.combo >= 10) tierText = '⚡ CHAOS';
+      else if (gd.combo >= 7) tierText = '🌪️ WILD';
+      else if (gd.combo >= 5) tierText = '⭐ BLAZING';
+      
+      if (tierText) {
+        ctx.font = `bold ${fontSize * 0.55 * comboScale}px monospace`;
+        ctx.fillStyle = COLORS.white;
+        ctx.globalAlpha = 0.7 + Math.sin(frameRef.current * 0.15) * 0.3;
+        ctx.fillText(tierText, W / 2, pad + fontSize * 3.5);
+      }
       ctx.restore();
     }
 
