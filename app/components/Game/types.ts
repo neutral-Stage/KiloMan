@@ -17,6 +17,7 @@ export interface LevelEntity {
   // Monster specific
   patrolRange?: number; // Distance to move back and forth
   speed?: number;
+  patrolStart?: number; // Initial X position for patrol (runtime state)
 }
 
 export interface Vec2 {
