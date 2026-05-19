@@ -2,8 +2,8 @@
 
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
-  GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData,
+  GameState, PlayerShip, Bullet, Enemy, PowerUp, PowerUpType,
+  Particle, Star, GameData, TouchInput, HudSnapshot, defaultTouchInput,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
@@ -11,11 +11,21 @@ import { rectsOverlap } from './collision';
 import { createDefaultPlayer, createDefaultGameData } from './defaults';
 import { saveHighScore } from './storage';
 import {
+  createBulletPool,
+  createParticlePool,
+  compactBullets,
+  compactParticles,
+  ObjectPool,
+} from './pool';
+import {
+  startWaveFromConfig,
+  isWaveComplete,
+  getSpawnEntriesDue,
+  filterFutureSpawnEntries,
+} from './waveLogic';
+import {
   drawStartScreen,
   drawGameOverScreen,
-  drawPauseOverlay,
-  drawWaveBanner,
-  drawHUD,
   drawPlayer,
   drawEnemy,
   drawPowerUp,
@@ -27,7 +37,6 @@ import {
   HIT_INVINCIBILITY_FRAMES,
   POWER_UP_DURATION,
   POWER_UP_DROP_CHANCE,
-  BOSS_WAVE_INTERVAL,
   BETWEEN_WAVE_DELAY,
   STAR_LAYERS,
   STAR_COUNT,
@@ -36,13 +45,61 @@ import {
   COLORS,
 } from './constants';
 
+function pushBullet(
+  pool: ObjectPool<Bullet>,
+  list: Bullet[],
+  props: Partial<Bullet> & Pick<Bullet, 'x' | 'y' | 'isPlayerBullet'>,
+): void {
+  const b = pool.acquire();
+  b.x = props.x;
+  b.y = props.y;
+  b.isPlayerBullet = props.isPlayerBullet;
+  b.vx = props.vx ?? 0;
+  b.vy = props.vy ?? 0;
+  b.width = props.width ?? 4;
+  b.height = props.height ?? 12;
+  b.damage = props.damage ?? 1;
+  b.color = props.color ?? COLORS.cyan;
+  b.destroyed = false;
+  list.push(b);
+}
+
+function buildHudSnapshot(
+  gd: GameData,
+  player: PlayerShip,
+): HudSnapshot {
+  const showWaveBanner = gd.betweenWaves && gd.betweenWaveTimer > 30;
+  return {
+    score: gd.score,
+    highScore: gd.highScore,
+    wave: gd.wave,
+    lives: player.lives,
+    health: player.health,
+    maxHealth: player.maxHealth,
+    powerUps: {
+      spread: player.powerUps.spreadShot > 0,
+      shield: player.powerUps.shield > 0,
+      speed: player.powerUps.speedBoost > 0,
+    },
+    betweenWaves: gd.betweenWaves,
+    waveAnnouncement: showWaveBanner ? `Wave ${gd.wave + 1}` : null,
+  };
+}
+
 // ===== COMPONENT =====
 interface GameCanvasProps {
   gameState: GameState;
   setGameState: (state: GameState) => void;
+  onHudUpdate?: (hud: HudSnapshot) => void;
+  touchInputRef?: React.MutableRefObject<TouchInput>;
 }
 
-const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
+const GameCanvas: React.FC<GameCanvasProps> = ({
+  gameState,
+  setGameState,
+  onHudUpdate,
+  touchInputRef,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
@@ -61,6 +118,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const frameRef = useRef(0);
   const audioRef = useRef<AudioEngine | null>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
+  const bulletPoolRef = useRef(createBulletPool(80));
+  const particlePoolRef = useRef(createParticlePool(160));
+  const lastHudKeyRef = useRef('');
 
   // Initialize stars
   const initStars = useCallback((w: number, h: number) => {
@@ -143,10 +203,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       const w = dimensions.width;
       const h = dimensions.height;
       playerRef.current = createDefaultPlayer(w / 2, h - 80);
+      bulletPoolRef.current.releaseAll(bulletsRef.current);
+      particlePoolRef.current.releaseAll(particlesRef.current);
       bulletsRef.current = [];
       enemiesRef.current = [];
       powerUpsRef.current = [];
       particlesRef.current = [];
+      if (touchInputRef) {
+        touchInputRef.current = defaultTouchInput();
+      }
+      lastHudKeyRef.current = '';
       gameDataRef.current = createDefaultGameData();
       shootCooldownRef.current = 0;
       frameRef.current = 0;
@@ -156,18 +222,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
+    const pool = particlePoolRef.current;
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const spd = speed * (0.5 + Math.random());
-      particlesRef.current.push({
-        x, y,
-        vx: Math.cos(angle) * spd,
-        vy: Math.sin(angle) * spd,
-        life: 30 + Math.random() * 20,
-        maxLife: 50,
-        color,
-        size: 2 + Math.random() * 3,
-      });
+      const p = pool.acquire();
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(angle) * spd;
+      p.vy = Math.sin(angle) * spd;
+      p.life = 30 + Math.random() * 20;
+      p.maxLife = 50;
+      p.color = color;
+      p.size = 2 + Math.random() * 3;
+      particlesRef.current.push(p);
     }
   }, []);
 
@@ -180,49 +248,64 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
   }, []);
 
-  const playerShoot = useCallback((player: PlayerShip, w: number) => {
+  const playerShoot = useCallback((player: PlayerShip) => {
     if (shootCooldownRef.current > 0) return;
     shootCooldownRef.current = PLAYER_SHOOT_COOLDOWN;
     audioRef.current?.playLaser();
 
+    const pool = bulletPoolRef.current;
+    const list = bulletsRef.current;
     const cx = player.x + player.width / 2;
-    const bulletBase = {
-      y: player.y - 10, width: 4, height: 12, damage: 1,
-      color: COLORS.cyan, isPlayerBullet: true, vx: 0, vy: -10,
+    const base = {
+      y: player.y - 10,
+      vy: -10,
+      width: 4,
+      height: 12,
+      damage: 1,
+      color: COLORS.cyan,
+      isPlayerBullet: true as const,
     };
 
     if (player.powerUps.spreadShot > 0) {
-      bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
-      bulletsRef.current.push({ ...bulletBase, x: cx - 12, vx: -2 });
-      bulletsRef.current.push({ ...bulletBase, x: cx + 8, vx: 2 });
+      pushBullet(pool, list, { ...base, x: cx - 2 });
+      pushBullet(pool, list, { ...base, x: cx - 12, vx: -2 });
+      pushBullet(pool, list, { ...base, x: cx + 8, vx: 2 });
     } else {
-      bulletsRef.current.push({ ...bulletBase, x: cx - 2 });
+      pushBullet(pool, list, { ...base, x: cx - 2 });
     }
-
-    // Keep bullets in bounds
-    bulletsRef.current = bulletsRef.current.filter(b =>
-      b.x > -20 && b.x < w + 20
-    );
   }, []);
 
   const enemyShoot = useCallback((enemy: Enemy) => {
+    const pool = bulletPoolRef.current;
+    const list = bulletsRef.current;
     const cx = enemy.x + enemy.width / 2;
     const cy = enemy.y + enemy.height;
 
     if (enemy.isBoss) {
-      // Boss fires spread
       for (let i = -2; i <= 2; i++) {
-        bulletsRef.current.push({
-          x: cx - 3 + i * 20, y: cy, width: 6, height: 6,
-          vx: i * 1.5, vy: 4, damage: 1,
-          color: COLORS.red, isPlayerBullet: false,
+        pushBullet(pool, list, {
+          x: cx - 3 + i * 20,
+          y: cy,
+          width: 6,
+          height: 6,
+          vx: i * 1.5,
+          vy: 4,
+          damage: 1,
+          color: COLORS.red,
+          isPlayerBullet: false,
         });
       }
     } else {
-      bulletsRef.current.push({
-        x: cx - 3, y: cy, width: 6, height: 6,
-        vx: 0, vy: 4 + Math.random() * 2, damage: 1,
-        color: COLORS.orange, isPlayerBullet: false,
+      pushBullet(pool, list, {
+        x: cx - 3,
+        y: cy,
+        width: 6,
+        height: 6,
+        vx: 0,
+        vy: 4 + Math.random() * 2,
+        damage: 1,
+        color: COLORS.orange,
+        isPlayerBullet: false,
       });
     }
   }, []);
@@ -269,20 +352,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   }, []);
 
   const startWave = useCallback((gd: GameData) => {
-    const wave = generateWave(gd.wave);
-    const queue: Array<{ type: EnemyType; spawnAt: number }> = [];
-    let time = 0;
-    let totalEnemies = 0;
-    for (const group of wave.enemies) {
-      for (let i = 0; i < group.count; i++) {
-        queue.push({ type: group.type, spawnAt: time });
-        time += group.delay;
-        totalEnemies++;
-      }
-    }
-    gd.waveSpawnQueue = queue;
-    gd.waveTimer = 0;
-    gd.waveEnemiesRemaining = totalEnemies;
+    startWaveFromConfig(gd, generateWave(gd.wave));
   }, []);
 
   // ===== UPDATE =====
@@ -291,6 +361,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     const player = playerRef.current;
     const keys = keysRef.current;
+    const touch = touchInputRef?.current ?? defaultTouchInput();
     const gd = gameDataRef.current;
     const W = dimensions.width;
     const H = dimensions.height;
@@ -300,10 +371,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     // --- Player Movement ---
     const moveSpeed = player.speed * (player.powerUps.speedBoost > 0 ? 1.6 : 1) * dt;
-    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= moveSpeed;
-    if (keys['ArrowRight'] || keys['KeyD']) player.x += moveSpeed;
-    if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
-    if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
+    if (keys['ArrowLeft'] || keys['KeyA'] || touch.left) player.x -= moveSpeed;
+    if (keys['ArrowRight'] || keys['KeyD'] || touch.right) player.x += moveSpeed;
+    if (keys['ArrowUp'] || keys['KeyW'] || touch.up) player.y -= moveSpeed;
+    if (keys['ArrowDown'] || keys['KeyS'] || touch.down) player.y += moveSpeed;
 
     // Clamp to screen
     player.x = Math.max(0, Math.min(W - player.width, player.x));
@@ -311,8 +382,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     // --- Shooting (auto-fire + optional space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
-    if (AUTO_FIRE_ENABLED || keys['Space']) {
-      playerShoot(player, W);
+    if (AUTO_FIRE_ENABLED || keys['Space'] || touch.fire) {
+      playerShoot(player);
     }
 
     // --- Power-up timers ---
@@ -335,9 +406,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
     });
-    bulletsRef.current = bulletsRef.current.filter(b =>
-      !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
-    );
+    compactBullets(bulletsRef.current, bulletPoolRef.current, W, H);
 
     // --- Enemies ---
     enemiesRef.current.forEach(e => {
@@ -397,7 +466,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       p.life -= dt;
       p.size *= 0.98;
     });
-    particlesRef.current = particlesRef.current.filter(p => p.life > 0);
+    compactParticles(particlesRef.current, particlePoolRef.current);
 
     // --- Collision: Player bullets vs enemies ---
     const playerBullets = bulletsRef.current.filter(b => b.isPlayerBullet);
@@ -486,26 +555,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     } else {
       // Spawn from queue
       gd.waveTimer += dt;
-      const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
+      const toSpawn = getSpawnEntriesDue(gd.waveSpawnQueue, gd.waveTimer);
       for (const s of toSpawn) {
         enemiesRef.current.push(createEnemy(s.type, W));
       }
-      gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
+      gd.waveSpawnQueue = filterFutureSpawnEntries(gd.waveSpawnQueue, gd.waveTimer);
 
-      // Check wave complete
-      if (gd.waveSpawnQueue.length === 0 && gd.waveEnemiesRemaining <= 0 && enemiesRef.current.length === 0) {
+      if (isWaveComplete(gd, enemiesRef.current.length)) {
         gd.wave++;
         gd.betweenWaves = true;
         gd.betweenWaveTimer = BETWEEN_WAVE_DELAY;
       }
     }
 
-    // --- Update high score ---
     if (gd.score > gd.highScore) {
       gd.highScore = gd.score;
     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
+    if (onHudUpdate) {
+      const snap = buildHudSnapshot(gd, player);
+      const key = JSON.stringify(snap);
+      if (key !== lastHudKeyRef.current) {
+        lastHudKeyRef.current = key;
+        onHudUpdate(snap);
+      }
+    }
+
+  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave, onHudUpdate, touchInputRef]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -573,18 +649,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       drawPlayer(ctx, player, frame);
     }
 
-    drawHUD(ctx, W, gd, player);
-
-    if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
-      drawWaveBanner(
-        ctx, W, H, gd.wave, BOSS_WAVE_INTERVAL,
-        Math.min(1, (gd.betweenWaveTimer - 30) / 30),
-      );
-    }
-
-    if (gameState === 'paused') {
-      drawPauseOverlay(ctx, W, H);
-    }
+    // HUD, pause, and wave banners are rendered by UIOverlay (React) for accessibility
 
   }, [gameState]);
 

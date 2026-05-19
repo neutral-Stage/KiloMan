@@ -2,6 +2,40 @@
 
 export type GameState = 'start' | 'playing' | 'paused' | 'gameover';
 
+/** Touch / virtual control state (merged with keyboard in GameCanvas). */
+export interface TouchInput {
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  fire: boolean;
+}
+
+export const defaultTouchInput = (): TouchInput => ({
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+  fire: false,
+});
+
+/** React HUD snapshot — updated from the game loop for accessibility. */
+export interface HudSnapshot {
+  score: number;
+  highScore: number;
+  wave: number;
+  lives: number;
+  health: number;
+  maxHealth: number;
+  powerUps: {
+    spread: boolean;
+    shield: boolean;
+    speed: boolean;
+  };
+  betweenWaves: boolean;
+  waveAnnouncement: string | null;
+}
+
 export interface PlayerShip {
   x: number;
   y: number;
