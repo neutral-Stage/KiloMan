@@ -1,11 +1,6 @@
 // ===== KILO SHOOTER - Type Definitions =====
 
-export type GameState = 'start' | 'playing' | 'gameover';
-
-export interface Vec2 {
-  x: number;
-  y: number;
-}
+export type GameState = 'start' | 'playing' | 'paused' | 'gameover';
 
 export interface PlayerShip {
   x: number;
@@ -114,15 +109,4 @@ export interface GameData {
   waveTimer: number;
   betweenWaves: boolean;
   betweenWaveTimer: number;
-}
-
-// ===== CAMERA =====
-export interface Camera {
-  x: number;         // World X position (left edge of viewport)
-  y: number;         // World Y position (top edge of viewport)
-  width: number;     // Viewport width (matches canvas)
-  height: number;    // Viewport height (matches canvas)
-  targetX: number;   // Target X for smooth follow
-  targetY: number;   // Target Y for smooth follow
-  smoothing: number; // Lerp factor (0-1, higher = snappier)
 }

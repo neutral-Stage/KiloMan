@@ -3,24 +3,37 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import {
   GameState, PlayerShip, Bullet, Enemy, EnemyType, PowerUp, PowerUpType,
-  Particle, Star, GameData, Camera,
+  Particle, Star, GameData,
 } from './types';
 import AudioEngine from './AudioEngine';
 import { generateWave, createEnemy } from './waveGenerator';
 import { rectsOverlap } from './collision';
+import { createDefaultPlayer, createDefaultGameData } from './defaults';
+import { saveHighScore } from './storage';
+import {
+  drawStartScreen,
+  drawGameOverScreen,
+  drawPauseOverlay,
+  drawWaveBanner,
+  drawHUD,
+  drawPlayer,
+  drawEnemy,
+  drawPowerUp,
+} from './rendering';
 import {
   PLAYER_SHOOT_COOLDOWN,
+  AUTO_FIRE_ENABLED,
   INVINCIBILITY_FRAMES,
+  HIT_INVINCIBILITY_FRAMES,
   POWER_UP_DURATION,
   POWER_UP_DROP_CHANCE,
   BOSS_WAVE_INTERVAL,
   BETWEEN_WAVE_DELAY,
   STAR_LAYERS,
   STAR_COUNT,
+  LOGO_PATH,
+  MAX_LIVES,
   COLORS,
-  CAMERA_SMOOTHING,
-  CAMERA_OFFSET_Y,
-  WORLD_HEIGHT,
 } from './constants';
 
 // ===== COMPONENT =====
@@ -48,66 +61,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   const frameRef = useRef(0);
   const audioRef = useRef<AudioEngine | null>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
-  const cameraRef = useRef<Camera>(createDefaultCamera(800, 600));
 
-  function createDefaultPlayer(cx: number, cy: number): PlayerShip {
-    return {
-      x: cx - 20, y: cy, width: 40, height: 44,
-      speed: 5, health: 3, maxHealth: 3, lives: 3,
-      invincibleTimer: 0,
-      powerUps: { spreadShot: 0, shield: 0, speedBoost: 0 },
-      thrusterFrame: 0,
-    };
-  }
-
-  function createDefaultGameData(): GameData {
-    let highScore = 0;
-    if (typeof window !== 'undefined') {
-      try {
-        highScore = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
-      } catch {
-        // localStorage may be unavailable in private browsing
-      }
-    }
-    return {
-      score: 0, wave: 0, highScore,
-      waveEnemiesRemaining: 0,
-      waveSpawnQueue: [],
-      waveTimer: 0,
-      betweenWaves: true,
-      betweenWaveTimer: 60,
-    };
-  }
-
-  function createDefaultCamera(w: number, h: number): Camera {
-    return {
-      x: 0, y: 0,
-      width: w,
-      height: h,
-      targetX: 0, targetY: 0,
-      smoothing: CAMERA_SMOOTHING,
-    };
-  }
-
-  // Initialize stars in world space
+  // Initialize stars
   const initStars = useCallback((w: number, h: number) => {
-    const worldW = w;
-    const worldH = WORLD_HEIGHT;
     const stars: Star[] = [];
     for (let i = 0; i < STAR_COUNT; i++) {
       const layer = i % STAR_LAYERS;
       stars.push({
-        x: Math.random() * worldW,
-        y: Math.random() * worldH,
+        x: Math.random() * w,
+        y: Math.random() * h,
         speed: 0.5 + layer * 1.2,
         size: 1 + layer * 0.5,
         brightness: 0.3 + layer * 0.25,
       });
     }
     starsRef.current = stars;
-    // Reset camera dimensions
-    cameraRef.current.width = w;
-    cameraRef.current.height = h;
   }, []);
 
   // Resize handler
@@ -126,7 +94,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   // Load logo
   useEffect(() => {
     const img = new Image();
-    img.src = '/KiloLogo.png';
+    img.src = LOGO_PATH;
     img.onload = () => { logoRef.current = img; };
   }, []);
 
@@ -141,7 +109,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       keysRef.current[e.code] = true;
       // Unlock AudioContext on first user gesture
       audioRef.current?.unlock();
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) {
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Escape'].includes(e.code)) {
         e.preventDefault();
       }
       // Start game on Enter
@@ -151,6 +119,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       // Restart on Enter from gameover
       if (e.code === 'Enter' && gameState === 'gameover') {
         setGameState('playing');
+      }
+      // Pause / resume
+      if (e.code === 'Escape') {
+        if (gameState === 'playing') setGameState('paused');
+        else if (gameState === 'paused') setGameState('playing');
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -177,7 +150,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gameDataRef.current = createDefaultGameData();
       shootCooldownRef.current = 0;
       frameRef.current = 0;
-      cameraRef.current = createDefaultCamera(w, h);
       initStars(w, h);
     }
   }, [gameState, dimensions, initStars]);
@@ -207,34 +179,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       x: x - 10, y, width: 20, height: 20, type, vy: 1.5,
     });
   }, []);
-
-  // ===== CAMERA =====
-  const updateCamera = useCallback(() => {
-    const camera = cameraRef.current;
-    const player = playerRef.current;
-
-    // Target: center camera on player with vertical offset (look above player)
-    const playerCenterX = player.x + player.width / 2;
-    const playerCenterY = player.y + player.height / 2;
-
-    camera.targetX = playerCenterX - camera.width / 2;
-    camera.targetY = playerCenterY - camera.height * (1 + CAMERA_OFFSET_Y);
-
-    // World bounds
-    const worldW = dimensions.width;
-    const worldH = WORLD_HEIGHT;
-
-    camera.targetX = Math.max(0, Math.min(worldW - camera.width, camera.targetX));
-    camera.targetY = Math.max(0, Math.min(worldH - camera.height, camera.targetY));
-
-    // Smooth follow (lerp)
-    camera.x += (camera.targetX - camera.x) * camera.smoothing;
-    camera.y += (camera.targetY - camera.y) * camera.smoothing;
-
-    // Clamp camera to world
-    camera.x = Math.max(0, Math.min(worldW - camera.width, camera.x));
-    camera.y = Math.max(0, Math.min(worldH - camera.height, camera.y));
-  }, [dimensions]);
 
   const playerShoot = useCallback((player: PlayerShip, w: number) => {
     if (shootCooldownRef.current > 0) return;
@@ -284,34 +228,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
   }, []);
 
   const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
-    player.lives--;
+    player.health -= 1;
     spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
-    audioRef.current?.playExplosion();
 
-    if (player.lives <= 0) {
-      // Game over
-      const gd = gameDataRef.current;
-      if (gd.score > gd.highScore) {
-        gd.highScore = gd.score;
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem('kiloShooterHighScore', gd.highScore.toString());
-          } catch {
-            // localStorage may be unavailable in private browsing
-          }
+    if (player.health <= 0) {
+      player.lives -= 1;
+      player.health = player.maxHealth;
+      audioRef.current?.playExplosion();
+
+      if (player.lives <= 0) {
+        const gd = gameDataRef.current;
+        if (gd.score > gd.highScore) {
+          gd.highScore = gd.score;
+          saveHighScore(gd.highScore);
         }
+        setGameState('gameover');
+        return;
       }
-      setGameState('gameover');
-    } else {
+
       player.invincibleTimer = INVINCIBILITY_FRAMES;
-      // Respawn at center-bottom of camera view (within world bounds)
-      const cam = cameraRef.current;
-      player.x = cam.x + W / 2 - player.width / 2;
-      player.y = cam.y + H - 80;
-      // Clamp to camera viewport (keep player on screen)
-      player.x = Math.max(cam.x, Math.min(cam.x + cam.width - player.width, player.x));
-      player.y = Math.max(cam.y + H * 0.3, Math.min(cam.y + H - player.height - 10, player.y));
+      player.x = W / 2 - player.width / 2;
+      player.y = H - 80;
       player.powerUps = { spreadShot: 0, shield: 0, speedBoost: 0 };
+    } else {
+      audioRef.current?.playHit();
+      player.invincibleTimer = HIT_INVINCIBILITY_FRAMES;
     }
   }, [spawnParticles, setGameState]);
 
@@ -320,7 +261,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       case 'spread': player.powerUps.spreadShot = POWER_UP_DURATION; break;
       case 'shield': player.powerUps.shield = POWER_UP_DURATION; break;
       case 'speed': player.powerUps.speedBoost = POWER_UP_DURATION; break;
-      case 'life': player.lives = Math.min(player.lives + 1, 5); break;
+      case 'life':
+        player.lives = Math.min(player.lives + 1, MAX_LIVES);
+        player.health = player.maxHealth;
+        break;
     }
   }, []);
 
@@ -350,9 +294,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const gd = gameDataRef.current;
     const W = dimensions.width;
     const H = dimensions.height;
-    const worldW = dimensions.width;
-    const worldH = WORLD_HEIGHT;
-    const camera = cameraRef.current;
 
     frameRef.current++;
     player.thrusterFrame++;
@@ -364,16 +305,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (keys['ArrowUp'] || keys['KeyW']) player.y -= moveSpeed;
     if (keys['ArrowDown'] || keys['KeyS']) player.y += moveSpeed;
 
-    // Clamp to camera viewport (player stays on screen)
-    player.x = Math.max(camera.x, Math.min(camera.x + camera.width - player.width, player.x));
-    player.y = Math.max(camera.y + H * 0.3, Math.min(camera.y + H - player.height - 10, player.y));
+    // Clamp to screen
+    player.x = Math.max(0, Math.min(W - player.width, player.x));
+    player.y = Math.max(H * 0.3, Math.min(H - player.height - 10, player.y));
 
-    // Update camera AFTER player movement
-    updateCamera();
-
-    // --- Shooting (auto-fire or space) ---
+    // --- Shooting (auto-fire + optional space) ---
     if (shootCooldownRef.current > 0) shootCooldownRef.current--;
-    if (keys['Space']) {
+    if (AUTO_FIRE_ENABLED || keys['Space']) {
       playerShoot(player, W);
     }
 
@@ -383,12 +321,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     if (player.powerUps.speedBoost > 0) player.powerUps.speedBoost -= dt;
     if (player.invincibleTimer > 0) player.invincibleTimer -= dt;
 
-    // --- Stars --- (world-space wrapping)
+    // --- Stars ---
     starsRef.current.forEach(star => {
       star.y += star.speed * dt;
-      if (star.y > worldH) {
+      if (star.y > H) {
         star.y = 0;
-        star.x = Math.random() * worldW;
+        star.x = Math.random() * W;
       }
     });
 
@@ -397,13 +335,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       b.x += b.vx * dt;
       b.y += b.vy * dt;
     });
-    // Cull bullets outside camera view (with margin)
-    const cam = cameraRef.current;
-    const cullMargin = 100;
     bulletsRef.current = bulletsRef.current.filter(b =>
-      !b.destroyed &&
-      b.x > cam.x - cullMargin && b.x < cam.x + cam.width + cullMargin &&
-      b.y > cam.y - cullMargin && b.y < cam.y + cam.height + cullMargin
+      !b.destroyed && b.y > -20 && b.y < H + 20 && b.x > -20 && b.x < W + 20
     );
 
     // --- Enemies ---
@@ -431,13 +364,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
           if (e.y < 60) {
             e.y += e.speed * dt;
           } else {
-            e.x = (camera.x + camera.width / 2) - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (camera.width * 0.3);
+            e.x = W / 2 - e.width / 2 + Math.sin(e.patternTimer * 0.02) * (W * 0.3);
           }
           break;
       }
 
-      // Clamp enemy X to world bounds (not screen)
-      e.x = Math.max(0, Math.min(worldW - e.width, e.x));
+      // Clamp enemy X
+      e.x = Math.max(0, Math.min(W - e.width, e.x));
 
       // Enemy shooting
       if (e.shootTimer >= e.shootInterval && e.y > 0) {
@@ -446,16 +379,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       }
     });
 
-    // Remove off-screen enemies (below camera view)
-    const offScreenEnemies = enemiesRef.current.filter(e => e.y > cam.y + cam.height + 100);
+    // Remove off-screen enemies
+    const offScreenEnemies = enemiesRef.current.filter(e => e.y > H + 100);
     offScreenEnemies.forEach(() => {
       gd.waveEnemiesRemaining = Math.max(0, gd.waveEnemiesRemaining - 1);
     });
-    enemiesRef.current = enemiesRef.current.filter(e => e.y <= cam.y + cam.height + 100);
+    enemiesRef.current = enemiesRef.current.filter(e => e.y <= H + 100);
 
     // --- Power-ups ---
     powerUpsRef.current.forEach(p => { p.y += p.vy * dt; });
-    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < cam.y + cam.height + 30);
+    powerUpsRef.current = powerUpsRef.current.filter(p => p.y < H + 30);
 
     // --- Particles ---
     particlesRef.current.forEach(p => {
@@ -555,7 +488,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.waveTimer += dt;
       const toSpawn = gd.waveSpawnQueue.filter(s => s.spawnAt <= gd.waveTimer);
       for (const s of toSpawn) {
-        enemiesRef.current.push(createEnemy(s.type, W, camera.y));
+        enemiesRef.current.push(createEnemy(s.type, W));
       }
       gd.waveSpawnQueue = gd.waveSpawnQueue.filter(s => s.spawnAt > gd.waveTimer);
 
@@ -572,7 +505,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       gd.highScore = gd.score;
     }
 
-  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave, updateCamera]);
+  }, [gameState, dimensions, spawnParticles, spawnPowerUp, playerShoot, enemyShoot, playerHit, applyPowerUp, startWave]);
 
   // ===== DRAWING =====
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -580,26 +513,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     const H = ctx.canvas.height;
     const player = playerRef.current;
     const gd = gameDataRef.current;
-    const camera = cameraRef.current;
 
-    // Clear screen
+    // Clear
     ctx.fillStyle = '#050510';
     ctx.fillRect(0, 0, W, H);
 
-    // Draw stars (always in screen-space with parallax based on camera)
-    // For start/gameover, stars move slower (ambient). For playing, they show depth.
-    ctx.save();
-    ctx.translate(-camera.x * 0.1, -camera.y * 0.1); // Parallax effect
+    // --- Stars ---
     starsRef.current.forEach(star => {
       ctx.globalAlpha = star.brightness;
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(star.x, star.y, star.size, star.size);
     });
     ctx.globalAlpha = 1;
-    ctx.restore();
 
     if (gameState === 'start') {
-      drawStartScreen(ctx, W, H);
+      drawStartScreen(ctx, W, H, logoRef.current);
       return;
     }
 
@@ -608,9 +536,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
       return;
     }
 
-    // Draw world with camera transform
-    ctx.save();
-    ctx.translate(-camera.x, -camera.y);
+    // playing or paused — render active session
+    const frame = frameRef.current;
 
     // --- Particles (behind everything) ---
     particlesRef.current.forEach(p => {
@@ -624,7 +551,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
 
     // --- Power-ups ---
     powerUpsRef.current.forEach(pu => {
-      drawPowerUp(ctx, pu);
+      drawPowerUp(ctx, pu, frame);
     });
 
     // --- Bullets ---
@@ -642,399 +569,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, setGameState }) => {
     });
 
     // --- Player ---
-    if (player.invincibleTimer <= 0 || Math.floor(frameRef.current / 4) % 2 === 0) {
-      drawPlayer(ctx, player);
+    if (player.invincibleTimer <= 0 || Math.floor(frame / 4) % 2 === 0) {
+      drawPlayer(ctx, player, frame);
     }
 
-    ctx.restore();
-
-    // --- HUD (screen-space) ---
     drawHUD(ctx, W, gd, player);
 
-    // --- Wave indicator (screen-space) ---
     if (gd.betweenWaves && gd.betweenWaveTimer > 30) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, (gd.betweenWaveTimer - 30) / 30);
-      ctx.fillStyle = COLORS.white;
-      ctx.font = 'bold 36px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, H / 2);
-      if (gd.wave > 0 && gd.wave % BOSS_WAVE_INTERVAL === 0) {
-        ctx.fillStyle = COLORS.red;
-        ctx.font = 'bold 24px monospace';
-        ctx.fillText('⚠ BOSS INCOMING ⚠', W / 2, H / 2 + 40);
-      }
-      ctx.restore();
+      drawWaveBanner(
+        ctx, W, H, gd.wave, BOSS_WAVE_INTERVAL,
+        Math.min(1, (gd.betweenWaveTimer - 30) / 30),
+      );
+    }
+
+    if (gameState === 'paused') {
+      drawPauseOverlay(ctx, W, H);
     }
 
   }, [gameState]);
-
-  function drawStartScreen(ctx: CanvasRenderingContext2D, W: number, H: number) {
-    // Logo
-    if (logoRef.current) {
-      const logo = logoRef.current;
-      const scale = Math.min(0.8, W / logo.width * 0.3);
-      const lw = logo.width * scale;
-      const lh = logo.height * scale;
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      ctx.drawImage(logo, W / 2 - lw / 2, H / 2 - lh / 2 - 60, lw, lh);
-      ctx.restore();
-    }
-
-    // Title
-    ctx.save();
-    ctx.fillStyle = COLORS.cyan;
-    ctx.shadowColor = COLORS.cyan;
-    ctx.shadowBlur = 20;
-    ctx.font = `bold ${Math.min(72, W * 0.08)}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText('KILO SHOOTER', W / 2, H / 2 - 20);
-    ctx.shadowBlur = 0;
-
-    // Subtitle
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
-    ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.004) * 0.4;
-    ctx.fillText('Press ENTER to start', W / 2, H / 2 + 30);
-    ctx.globalAlpha = 1;
-
-    // Controls
-    ctx.fillStyle = '#888888';
-    ctx.font = `${Math.min(16, W * 0.02)}px monospace`;
-    ctx.fillText('WASD / Arrow Keys: Move  •  Space: Shoot  •  Auto-fire enabled', W / 2, H / 2 + 80);
-
-    // High score
-    let hs = 0;
-    if (typeof window !== 'undefined') {
-      try {
-        hs = parseInt(localStorage.getItem('kiloShooterHighScore') || '0', 10);
-      } catch {
-        // localStorage may be unavailable in private browsing
-      }
-    }
-    if (hs > 0) {
-      ctx.fillStyle = COLORS.yellow;
-      ctx.font = `${Math.min(18, W * 0.022)}px monospace`;
-      ctx.fillText(`HIGH SCORE: ${hs.toLocaleString()}`, W / 2, H / 2 + 120);
-    }
-    ctx.restore();
-  }
-
-  function drawGameOverScreen(ctx: CanvasRenderingContext2D, W: number, H: number, gd: GameData) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = COLORS.red;
-    ctx.shadowColor = COLORS.red;
-    ctx.shadowBlur = 15;
-    ctx.font = `bold ${Math.min(64, W * 0.07)}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', W / 2, H / 2 - 60);
-    ctx.shadowBlur = 0;
-
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `${Math.min(28, W * 0.035)}px monospace`;
-    ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, W / 2, H / 2);
-
-    ctx.fillStyle = COLORS.yellow;
-    ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
-    ctx.fillText(`HIGH SCORE: ${gd.highScore.toLocaleString()}`, W / 2, H / 2 + 40);
-
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `${Math.min(18, W * 0.022)}px monospace`;
-    ctx.fillText(`Wave Reached: ${gd.wave + 1}`, W / 2, H / 2 + 75);
-
-    ctx.globalAlpha = 0.6 + Math.sin(Date.now() * 0.004) * 0.4;
-    ctx.fillStyle = COLORS.cyan;
-    ctx.font = `${Math.min(20, W * 0.025)}px monospace`;
-    ctx.fillText('Press ENTER to restart', W / 2, H / 2 + 120);
-    ctx.restore();
-  }
-
-  function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip) {
-    const cx = p.x + p.width / 2;
-    const cy = p.y + p.height / 2;
-
-    ctx.save();
-
-    // Thruster flame
-    const flicker = Math.sin(p.thrusterFrame * 0.5) * 4;
-    const thrusterGrad = ctx.createLinearGradient(cx, p.y + p.height, cx, p.y + p.height + 20 + flicker);
-    thrusterGrad.addColorStop(0, COLORS.cyan);
-    thrusterGrad.addColorStop(0.5, COLORS.orange);
-    thrusterGrad.addColorStop(1, 'transparent');
-    ctx.fillStyle = thrusterGrad;
-    ctx.beginPath();
-    ctx.moveTo(cx - 8, p.y + p.height);
-    ctx.lineTo(cx, p.y + p.height + 18 + flicker);
-    ctx.lineTo(cx + 8, p.y + p.height);
-    ctx.fill();
-
-    // Ship body - geometric sci-fi
-    ctx.fillStyle = COLORS.playerShip;
-    ctx.beginPath();
-    ctx.moveTo(cx, p.y);                          // nose
-    ctx.lineTo(cx + 18, p.y + 30);                // right wing start
-    ctx.lineTo(cx + 22, p.y + 40);                // right wing tip
-    ctx.lineTo(cx + 8, p.y + 35);                 // right inner
-    ctx.lineTo(cx + 6, p.y + p.height);           // right bottom
-    ctx.lineTo(cx - 6, p.y + p.height);           // left bottom
-    ctx.lineTo(cx - 8, p.y + 35);                 // left inner
-    ctx.lineTo(cx - 22, p.y + 40);                // left wing tip
-    ctx.lineTo(cx - 18, p.y + 30);                // left wing start
-    ctx.closePath();
-    ctx.fill();
-
-    // Cockpit
-    ctx.fillStyle = COLORS.cyan;
-    ctx.shadowColor = COLORS.cyan;
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.ellipse(cx, p.y + 16, 4, 8, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Wing accents
-    ctx.strokeStyle = COLORS.playerAccent;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, p.y + 28);
-    ctx.lineTo(cx - 20, p.y + 38);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx + 14, p.y + 28);
-    ctx.lineTo(cx + 20, p.y + 38);
-    ctx.stroke();
-
-    // Shield visual
-    if (p.powerUps.shield > 0) {
-      ctx.strokeStyle = COLORS.cyan;
-      ctx.globalAlpha = 0.4 + Math.sin(frameRef.current * 0.1) * 0.2;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, p.width * 0.8, p.height * 0.7, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    ctx.restore();
-  }
-
-  function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
-    const cx = e.x + e.width / 2;
-    const cy = e.y + e.height / 2;
-
-    ctx.save();
-
-    if (e.isBoss) {
-      // Boss - large menacing ship
-      ctx.fillStyle = e.color;
-      ctx.beginPath();
-      ctx.moveTo(cx, e.y + e.height);                    // bottom center
-      ctx.lineTo(cx - 60, e.y + e.height - 10);          // left bottom
-      ctx.lineTo(cx - 55, e.y + 20);                     // left mid
-      ctx.lineTo(cx - 30, e.y);                           // left top
-      ctx.lineTo(cx, e.y + 10);                           // top center dip
-      ctx.lineTo(cx + 30, e.y);                           // right top
-      ctx.lineTo(cx + 55, e.y + 20);                      // right mid
-      ctx.lineTo(cx + 60, e.y + e.height - 10);           // right bottom
-      ctx.closePath();
-      ctx.fill();
-
-      // Boss eye
-      ctx.fillStyle = COLORS.yellow;
-      ctx.shadowColor = COLORS.yellow;
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, 12, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-
-      // Health bar
-      const barW = e.width;
-      const barH = 6;
-      const barX = e.x;
-      const barY = e.y - 12;
-      ctx.fillStyle = '#333';
-      ctx.fillRect(barX, barY, barW, barH);
-      ctx.fillStyle = COLORS.red;
-      ctx.fillRect(barX, barY, barW * (e.health / e.maxHealth), barH);
-      ctx.strokeStyle = '#666';
-      ctx.strokeRect(barX, barY, barW, barH);
-    } else {
-      // Regular enemies - geometric shapes
-      ctx.fillStyle = e.color;
-
-      switch (e.type) {
-        case 'basic':
-          // Diamond shape
-          ctx.beginPath();
-          ctx.moveTo(cx, e.y);
-          ctx.lineTo(e.x + e.width, cy);
-          ctx.lineTo(cx, e.y + e.height);
-          ctx.lineTo(e.x, cy);
-          ctx.closePath();
-          ctx.fill();
-          // Core
-          ctx.fillStyle = '#fff';
-          ctx.beginPath();
-          ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-          ctx.fill();
-          break;
-
-        case 'zigzag':
-          // Hexagonal
-          ctx.beginPath();
-          for (let i = 0; i < 6; i++) {
-            const angle = (Math.PI * 2 * i) / 6 - Math.PI / 2;
-            const r = e.width / 2;
-            const px = cx + Math.cos(angle) * r;
-            const py = cy + Math.sin(angle) * r;
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-          }
-          ctx.closePath();
-          ctx.fill();
-          ctx.fillStyle = '#000';
-          ctx.beginPath();
-          ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-          ctx.fill();
-          break;
-
-        case 'swooper':
-          // Arrow/chevron shape
-          ctx.beginPath();
-          ctx.moveTo(cx, e.y);
-          ctx.lineTo(e.x + e.width, e.y + e.height * 0.6);
-          ctx.lineTo(cx + 5, e.y + e.height * 0.4);
-          ctx.lineTo(cx + 5, e.y + e.height);
-          ctx.lineTo(cx - 5, e.y + e.height);
-          ctx.lineTo(cx - 5, e.y + e.height * 0.4);
-          ctx.lineTo(e.x, e.y + e.height * 0.6);
-          ctx.closePath();
-          ctx.fill();
-          break;
-
-        case 'tank':
-          // Chunky rectangle with details
-          ctx.fillRect(e.x + 4, e.y + 4, e.width - 8, e.height - 8);
-          ctx.strokeStyle = '#aaa';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(e.x, e.y, e.width, e.height);
-          // Cannon
-          ctx.fillStyle = '#666';
-          ctx.fillRect(cx - 3, e.y + e.height - 4, 6, 10);
-          // Health bar for tanks
-          const tw = e.width;
-          const th = 4;
-          ctx.fillStyle = '#333';
-          ctx.fillRect(e.x, e.y - 8, tw, th);
-          ctx.fillStyle = COLORS.green;
-          ctx.fillRect(e.x, e.y - 8, tw * (e.health / e.maxHealth), th);
-          break;
-      }
-    }
-
-    ctx.restore();
-  }
-
-  function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp) {
-    const cx = pu.x + pu.width / 2;
-    const cy = pu.y + pu.height / 2;
-    const pulse = Math.sin(frameRef.current * 0.1) * 2;
-
-    ctx.save();
-
-    let color: string;
-    let label: string;
-    switch (pu.type) {
-      case 'spread': color = COLORS.magenta; label = 'S'; break;
-      case 'shield': color = COLORS.cyan; label = '◊'; break;
-      case 'speed': color = COLORS.green; label = '»'; break;
-      case 'life': color = COLORS.red; label = '+'; break;
-    }
-
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 8 + pulse;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.fillStyle = color;
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, cx, cy);
-
-    ctx.restore();
-  }
-
-  function drawHUD(ctx: CanvasRenderingContext2D, W: number, gd: GameData, player: PlayerShip) {
-    ctx.save();
-    const pad = 15;
-    const fontSize = Math.min(18, W * 0.022);
-
-    // Score
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.textAlign = 'left';
-    ctx.fillText(`SCORE: ${gd.score.toLocaleString()}`, pad, pad + fontSize);
-
-    // High score
-    ctx.fillStyle = COLORS.yellow;
-    ctx.font = `${fontSize * 0.8}px monospace`;
-    ctx.fillText(`HI: ${gd.highScore.toLocaleString()}`, pad, pad + fontSize * 2.2);
-
-    // Wave
-    ctx.fillStyle = COLORS.cyan;
-    ctx.font = `bold ${fontSize}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText(`WAVE ${gd.wave + 1}`, W / 2, pad + fontSize);
-
-    // Lives
-    ctx.textAlign = 'right';
-    ctx.fillStyle = COLORS.white;
-    ctx.font = `bold ${fontSize}px monospace`;
-    const livesText = '♥'.repeat(player.lives);
-    ctx.fillText(livesText, W - pad, pad + fontSize);
-
-    // Health bar
-    const barW = 100;
-    const barH = 8;
-    const barX = W - pad - barW;
-    const barY = pad + fontSize + 10;
-    ctx.fillStyle = '#333';
-    ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = player.health > 1 ? COLORS.green : COLORS.red;
-    ctx.fillRect(barX, barY, barW * (player.health / player.maxHealth), barH);
-
-    // Active power-ups indicators
-    let puY = barY + barH + 10;
-    const puFontSize = fontSize * 0.7;
-    ctx.font = `${puFontSize}px monospace`;
-    ctx.textAlign = 'right';
-    if (player.powerUps.spreadShot > 0) {
-      ctx.fillStyle = COLORS.magenta;
-      ctx.fillText('SPREAD', W - pad, puY + puFontSize);
-      puY += puFontSize + 4;
-    }
-    if (player.powerUps.shield > 0) {
-      ctx.fillStyle = COLORS.cyan;
-      ctx.fillText('SHIELD', W - pad, puY + puFontSize);
-      puY += puFontSize + 4;
-    }
-    if (player.powerUps.speedBoost > 0) {
-      ctx.fillStyle = COLORS.green;
-      ctx.fillText('SPEED+', W - pad, puY + puFontSize);
-    }
-
-    ctx.restore();
-  }
 
   // ===== GAME LOOP =====
   const loop = useCallback((timestamp: number) => {
