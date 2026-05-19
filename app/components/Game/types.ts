@@ -1,11 +1,6 @@
 // ===== KILO SHOOTER - Type Definitions =====
 
-export type GameState = 'start' | 'playing' | 'gameover';
-
-export interface Vec2 {
-  x: number;
-  y: number;
-}
+export type GameState = 'start' | 'playing' | 'paused' | 'gameover';
 
 export interface PlayerShip {
   x: number;

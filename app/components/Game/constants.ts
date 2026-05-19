@@ -1,6 +1,18 @@
 // ===== GAME CONSTANTS =====
+export const HIGH_SCORE_STORAGE_KEY = 'kiloShooterHighScore';
+export const LOGO_PATH = '/KiloLogo.svg';
+
+export const PLAYER_SHIP_WIDTH = 40;
+export const PLAYER_SHIP_HEIGHT = 44;
+export const PLAYER_SHIP_SPEED = 5;
+export const PLAYER_STARTING_HEALTH = 3;
+export const PLAYER_STARTING_LIVES = 3;
+export const MAX_LIVES = 5;
+
 export const PLAYER_SHOOT_COOLDOWN = 8;
+export const AUTO_FIRE_ENABLED = true;
 export const INVINCIBILITY_FRAMES = 120;
+export const HIT_INVINCIBILITY_FRAMES = 45;
 export const POWER_UP_DURATION = 600; // 10 seconds at 60fps
 export const POWER_UP_DROP_CHANCE = 0.25;
 export const BOSS_WAVE_INTERVAL = 5;

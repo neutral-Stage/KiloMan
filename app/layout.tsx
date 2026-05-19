@@ -1,12 +1,20 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Kilo Shooter",
-  description: "A 2D space shooter game",
+  description: "A fullscreen arcade space shooter built with Next.js and Canvas",
   icons: {
-    icon: "/KiloLogo.png",
+    icon: "/KiloLogo.svg",
   },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#050510",
 };
 
 export default function RootLayout({
@@ -16,9 +24,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

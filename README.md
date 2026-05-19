@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kilo Shooter
 
-## Getting Started
+A fullscreen arcade space shooter built with **Next.js 15**, **React 19**, **TypeScript**, and **HTML5 Canvas**.
 
-First, run the development server:
+## Play
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Controls
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Key | Action |
+|-----|--------|
+| **Enter** | Start / restart |
+| **WASD** or **Arrow keys** | Move ship |
+| **Space** | Fire (auto-fire is always on) |
+| **Esc** | Pause / resume |
 
-## Learn More
+## Features
 
-To learn more about Next.js, take a look at the following resources:
+- Wave-based enemy spawns with increasing difficulty
+- Boss waves every 5 waves
+- Power-ups: spread shot, shield, speed boost, extra life
+- Procedural Web Audio sound effects
+- High score saved to `localStorage`
+- Responsive fullscreen canvas
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+app/
+├── layout.tsx              # Root layout, metadata, viewport
+├── page.tsx                # Entry — mounts GameContainer
+├── globals.css             # Tailwind + base resets
+└── components/Game/
+    ├── GameContainer.tsx   # Screen state (start / playing / paused / gameover)
+    ├── GameCanvas.tsx      # Game loop, physics, input
+    ├── types.ts            # TypeScript interfaces
+    ├── constants.ts        # Balance tuning & colors
+    ├── defaults.ts         # Default player & run state
+    ├── storage.ts          # High score persistence
+    ├── collision.ts        # AABB collision
+    ├── waveGenerator.ts    # Waves & enemy factory
+    ├── AudioEngine.ts      # Procedural SFX
+    └── rendering/          # Canvas draw helpers
+        ├── screens.ts
+        ├── entities.ts
+        └── hud.ts
+```
 
-## Deploy on Vercel
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Scripts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Development server |
+| `npm run build` | Production build |
+| `npm run start` | Run production build |
+| `npm run lint` | ESLint |
+
+## Stack
+
+- Next.js 15 (App Router)
+- React 19
+- Tailwind CSS v4
+- TypeScript (strict)
