@@ -24,12 +24,11 @@ import {
   filterFutureSpawnEntries,
 } from './waveLogic';
 import {
-  drawStartScreen,
-  drawGameOverScreen,
   drawPlayer,
   drawEnemy,
   drawPowerUp,
 } from './rendering';
+import { drawBackground } from './rendering/background';
 import {
   PLAYER_SHOOT_COOLDOWN,
   AUTO_FIRE_ENABLED,
@@ -40,7 +39,6 @@ import {
   BETWEEN_WAVE_DELAY,
   STAR_LAYERS,
   STAR_COUNT,
-  LOGO_PATH,
   MAX_LIVES,
   COLORS,
 } from './constants';
@@ -59,7 +57,7 @@ function pushBullet(
   b.width = props.width ?? 4;
   b.height = props.height ?? 12;
   b.damage = props.damage ?? 1;
-  b.color = props.color ?? COLORS.cyan;
+  b.color = props.color ?? COLORS.bulletPlayer;
   b.destroyed = false;
   list.push(b);
 }
@@ -117,7 +115,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const shootCooldownRef = useRef(0);
   const frameRef = useRef(0);
   const audioRef = useRef<AudioEngine | null>(null);
-  const logoRef = useRef<HTMLImageElement | null>(null);
   const bulletPoolRef = useRef(createBulletPool(80));
   const particlePoolRef = useRef(createParticlePool(160));
   const lastHudKeyRef = useRef('');
@@ -150,13 +147,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [initStars]);
-
-  // Load logo
-  useEffect(() => {
-    const img = new Image();
-    img.src = LOGO_PATH;
-    img.onload = () => { logoRef.current = img; };
-  }, []);
 
   // Audio engine
   useEffect(() => {
@@ -218,7 +208,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       frameRef.current = 0;
       initStars(w, h);
     }
-  }, [gameState, dimensions, initStars]);
+  }, [gameState, dimensions, initStars, touchInputRef]);
 
   // ===== SPAWN HELPERS =====
   const spawnParticles = useCallback((x: number, y: number, count: number, color: string, speed = 3) => {
@@ -262,7 +252,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       width: 4,
       height: 12,
       damage: 1,
-      color: COLORS.cyan,
+      color: COLORS.bulletPlayer,
       isPlayerBullet: true as const,
     };
 
@@ -291,7 +281,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           vx: i * 1.5,
           vy: 4,
           damage: 1,
-          color: COLORS.red,
+          color: COLORS.bulletEnemy,
           isPlayerBullet: false,
         });
       }
@@ -304,7 +294,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         vx: 0,
         vy: 4 + Math.random() * 2,
         damage: 1,
-        color: COLORS.orange,
+        color: COLORS.bulletEnemy,
         isPlayerBullet: false,
       });
     }
@@ -312,7 +302,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   const playerHit = useCallback((player: PlayerShip, W: number, H: number) => {
     player.health -= 1;
-    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.orange, 4);
+    spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 20, COLORS.warm, 4);
 
     if (player.health <= 0) {
       player.lives -= 1;
@@ -507,7 +497,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           bullet.destroyed = true;
           if (player.powerUps.shield > 0) {
             player.powerUps.shield = 0;
-            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
+            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.accent, 2);
             audioRef.current?.playHit();
           } else {
             playerHit(player, W, H);
@@ -524,7 +514,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           enemy.x, enemy.y, enemy.width, enemy.height)) {
           if (player.powerUps.shield > 0) {
             player.powerUps.shield = 0;
-            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.cyan, 2);
+            spawnParticles(player.x + player.width / 2, player.y + player.height / 2, 10, COLORS.accent, 2);
           } else {
             playerHit(player, W, H);
           }
@@ -540,7 +530,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         pu.x, pu.y, pu.width, pu.height)) {
         applyPowerUp(player, pu.type);
         audioRef.current?.playPowerUp();
-        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.green, 2);
+        spawnParticles(pu.x + pu.width / 2, pu.y + pu.height / 2, 8, COLORS.success, 2);
         powerUpsRef.current.splice(i, 1);
       }
     }
@@ -587,32 +577,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const draw = useCallback((ctx: CanvasRenderingContext2D) => {
     const W = ctx.canvas.width;
     const H = ctx.canvas.height;
+    drawBackground(ctx, W, H, starsRef.current);
+
+    if (gameState !== 'playing' && gameState !== 'paused') {
+      return;
+    }
+
     const player = playerRef.current;
-    const gd = gameDataRef.current;
-
-    // Clear
-    ctx.fillStyle = '#050510';
-    ctx.fillRect(0, 0, W, H);
-
-    // --- Stars ---
-    starsRef.current.forEach(star => {
-      ctx.globalAlpha = star.brightness;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(star.x, star.y, star.size, star.size);
-    });
-    ctx.globalAlpha = 1;
-
-    if (gameState === 'start') {
-      drawStartScreen(ctx, W, H, logoRef.current);
-      return;
-    }
-
-    if (gameState === 'gameover') {
-      drawGameOverScreen(ctx, W, H, gd);
-      return;
-    }
-
-    // playing or paused — render active session
     const frame = frameRef.current;
 
     // --- Particles (behind everything) ---
@@ -632,11 +603,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // --- Bullets ---
     bulletsRef.current.forEach(b => {
-      ctx.fillStyle = b.color;
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 8;
-      ctx.fillRect(b.x, b.y, b.width, b.height);
-      ctx.shadowBlur = 0;
+      ctx.fillStyle = b.isPlayerBullet ? COLORS.bulletPlayer : COLORS.bulletEnemy;
+      const w = b.isPlayerBullet ? 3 : 4;
+      const h = b.isPlayerBullet ? 10 : 8;
+      ctx.fillRect(b.x - w / 2, b.y - h / 2, w, h);
     });
 
     // --- Enemies ---
@@ -684,7 +654,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       ref={canvasRef}
       width={dimensions.width}
       height={dimensions.height}
-      className="block bg-black"
+      className="block bg-[var(--game-bg)]"
     />
   );
 };

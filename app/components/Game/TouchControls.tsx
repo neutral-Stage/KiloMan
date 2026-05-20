@@ -12,21 +12,34 @@ interface TouchControlsProps {
 
 type Direction = keyof Pick<TouchInput, 'left' | 'right' | 'up' | 'down'>;
 
+function Chevron({ dir }: { dir: 'up' | 'down' | 'left' | 'right' }) {
+  const paths: Record<string, string> = {
+    up: 'M12 8l-6 6h12z',
+    down: 'M12 16l6-6H6z',
+    left: 'M8 12l6-6v12z',
+    right: 'M16 12l-6-6v12z',
+  };
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden className="opacity-90">
+      <path fill="currentColor" d={paths[dir]} />
+    </svg>
+  );
+}
+
+const padBtn =
+  'flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-xl border border-[var(--game-border)] bg-[var(--game-surface)] text-[var(--game-text)] active:bg-[rgba(255,255,255,0.08)] touch-manipulation';
+
 const TouchControls: React.FC<TouchControlsProps> = ({
   gameState,
   touchInputRef,
   onPauseToggle,
-  onStart,
 }) => {
   const activePointers = useRef<Set<Direction | 'fire'>>(new Set());
 
   const setDirection = useCallback(
     (dir: Direction | 'fire', active: boolean) => {
-      if (active) {
-        activePointers.current.add(dir);
-      } else {
-        activePointers.current.delete(dir);
-      }
+      if (active) activePointers.current.add(dir);
+      else activePointers.current.delete(dir);
       const t = touchInputRef.current;
       t.left = activePointers.current.has('left');
       t.right = activePointers.current.has('right');
@@ -52,96 +65,55 @@ const TouchControls: React.FC<TouchControlsProps> = ({
     type: 'button' as const,
   });
 
-  if (gameState === 'start') {
-    return (
-      <div className="absolute inset-x-0 bottom-8 z-20 flex justify-center px-4 md:hidden">
-        <button
-          type="button"
-          onClick={onStart}
-          className="rounded-lg border border-cyan-500/60 bg-cyan-950/80 px-8 py-4 font-mono text-lg font-bold text-cyan-300 backdrop-blur-sm active:bg-cyan-800"
-          aria-label="Start game"
-        >
-          TAP TO START
-        </button>
-      </div>
-    );
-  }
-
-  if (gameState === 'gameover') {
-    return (
-      <div className="absolute inset-x-0 bottom-8 z-20 flex justify-center px-4 md:hidden">
-        <button
-          type="button"
-          onClick={onStart}
-          className="rounded-lg border border-cyan-500/60 bg-cyan-950/80 px-8 py-4 font-mono text-lg font-bold text-cyan-300 backdrop-blur-sm active:bg-cyan-800"
-          aria-label="Restart game"
-        >
-          TAP TO RESTART
-        </button>
-      </div>
-    );
+  if (gameState === 'start' || gameState === 'gameover') {
+    return null;
   }
 
   return (
     <div
-      className="absolute inset-0 z-20 touch-none select-none md:hidden"
+      className="absolute inset-0 z-[15] touch-none select-none md:hidden"
       aria-label="Touch game controls"
     >
-      {/* D-pad */}
-      <div className="absolute bottom-6 left-4 grid grid-cols-3 grid-rows-3 gap-1">
+      <div className="absolute bottom-5 left-4 grid grid-cols-3 grid-rows-3 gap-1.5">
         <div />
-        <button
-          {...bindButton('up', 'Move up')}
-          className="flex h-14 w-14 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-xl text-white active:bg-white/20"
-        >
-          ▲
+        <button {...bindButton('up', 'Move up')} className={padBtn}>
+          <Chevron dir="up" />
         </button>
         <div />
-        <button
-          {...bindButton('left', 'Move left')}
-          className="flex h-14 w-14 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-xl text-white active:bg-white/20"
-        >
-          ◀
+        <button {...bindButton('left', 'Move left')} className={padBtn}>
+          <Chevron dir="left" />
         </button>
-        <div className="h-14 w-14" />
-        <button
-          {...bindButton('right', 'Move right')}
-          className="flex h-14 w-14 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-xl text-white active:bg-white/20"
-        >
-          ▶
+        <div className="h-[3.25rem] w-[3.25rem]" aria-hidden />
+        <button {...bindButton('right', 'Move right')} className={padBtn}>
+          <Chevron dir="right" />
         </button>
         <div />
-        <button
-          {...bindButton('down', 'Move down')}
-          className="flex h-14 w-14 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-xl text-white active:bg-white/20"
-        >
-          ▼
+        <button {...bindButton('down', 'Move down')} className={padBtn}>
+          <Chevron dir="down" />
         </button>
         <div />
       </div>
 
-      {/* Fire + pause */}
-      <div className="absolute right-4 bottom-6 flex flex-col gap-3">
+      <div className="absolute right-4 bottom-5 flex flex-col items-end gap-3">
         <button
           type="button"
           onClick={onPauseToggle}
-          className="h-12 rounded-lg border border-white/20 bg-black/50 px-4 font-mono text-sm text-white active:bg-white/20"
+          className="game-btn game-btn--ghost h-11 min-w-[4.5rem] px-4 text-sm"
           aria-label={gameState === 'paused' ? 'Resume game' : 'Pause game'}
         >
-          {gameState === 'paused' ? '▶' : '❚❚'}
+          {gameState === 'paused' ? 'Resume' : 'Pause'}
         </button>
         <button
           {...bindButton('fire', 'Fire')}
-          className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-orange-500/60 bg-orange-950/70 font-mono text-sm font-bold text-orange-300 active:bg-orange-800"
+          className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full border border-[var(--game-border-strong)] bg-[var(--game-accent-dim)] font-medium text-sm text-[var(--game-accent)] active:scale-[0.98] touch-manipulation"
         >
-          FIRE
+          Fire
         </button>
       </div>
     </div>
   );
 };
 
-/** Reset touch state when leaving play (call from parent on state change). */
 export function resetTouchInput(ref: React.MutableRefObject<TouchInput>): void {
   ref.current = defaultTouchInput();
 }

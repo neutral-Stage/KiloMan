@@ -20,20 +20,54 @@ export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
 export const STAR_COUNT = 150;
 
-// ===== COLORS =====
+/** Canvas palette — restrained, no neon defaults */
 export const COLORS = {
-  cyan: '#00ffff',
-  magenta: '#ff00ff',
-  orange: '#ff8800',
-  green: '#00ff66',
-  yellow: '#ffff00',
-  red: '#ff3333',
-  white: '#ffffff',
-  playerShip: '#00ccff',
-  playerAccent: '#0088ff',
-  enemyBasic: '#ff4444',
-  enemyZigzag: '#ff8800',
-  enemySwooper: '#ff00ff',
-  enemyTank: '#888888',
-  boss: '#ff0044',
+  bgTop: '#0a0f18',
+  bgMid: '#0e1520',
+  bgBottom: '#121a28',
+
+  accent: '#6eb5ff',
+  accentSoft: '#a8d4ff',
+  warm: '#e8a86a',
+  warmDeep: '#c4844a',
+  success: '#6bc49a',
+  danger: '#e07070',
+  dangerDeep: '#b84a4a',
+  white: '#e8edf4',
+  muted: '#8b9bb4',
+
+  playerHull: '#7a9cc4',
+  playerHighlight: '#b8d4f0',
+  playerCockpit: '#6eb5ff',
+  thrusterCore: '#e8a86a',
+  thrusterFade: 'rgba(232, 168, 106, 0)',
+
+  enemyBasic: '#c97b7b',
+  enemyZigzag: '#d4a06a',
+  enemySwooper: '#a88bc8',
+  enemyTank: '#6b7d8f',
+  bossHull: '#b84a4a',
+  bossCore: '#e8a86a',
+  boss: '#b84a4a',
+
+  bulletPlayer: '#a8d4ff',
+  bulletEnemy: '#e89a7a',
+
+  powerSpread: '#c49ad4',
+  powerShield: '#6eb5ff',
+  powerSpeed: '#6bc49a',
+  powerLife: '#e07070',
+  particleWhite: '#e8edf4',
+
+  explosion: 'rgba(232, 168, 106, 0.65)',
+
+  // Aliases used across gameplay / legacy HUD helpers
+  cyan: '#6eb5ff',
+  orange: '#e8a86a',
+  red: '#e07070',
+  green: '#6bc49a',
+  yellow: '#e8a86a',
+  magenta: '#c49ad4',
+  playerShip: '#7a9cc4',
+  playerAccent: '#b8d4f0',
 };
