@@ -14,7 +14,7 @@ describe('rectsOverlap', () => {
     expect(rectsOverlap(0, 0, 10, 10, 0, 20, 10, 10)).toBe(false);
   });
 
-  it('returns true when edges touch (shared edge)', () => {
+  it('returns false when only edges touch (zero overlap area)', () => {
     expect(rectsOverlap(0, 0, 10, 10, 10, 0, 10, 10)).toBe(false);
     expect(rectsOverlap(0, 0, 10, 10, 9, 0, 10, 10)).toBe(true);
   });

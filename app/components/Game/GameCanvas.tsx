@@ -84,6 +84,22 @@ function buildHudSnapshot(
   };
 }
 
+function hudSnapshotEquals(a: HudSnapshot, b: HudSnapshot): boolean {
+  return (
+    a.score === b.score &&
+    a.highScore === b.highScore &&
+    a.wave === b.wave &&
+    a.lives === b.lives &&
+    a.health === b.health &&
+    a.maxHealth === b.maxHealth &&
+    a.betweenWaves === b.betweenWaves &&
+    a.waveAnnouncement === b.waveAnnouncement &&
+    a.powerUps.spread === b.powerUps.spread &&
+    a.powerUps.shield === b.powerUps.shield &&
+    a.powerUps.speed === b.powerUps.speed
+  );
+}
+
 // ===== COMPONENT =====
 interface GameCanvasProps {
   gameState: GameState;
@@ -117,7 +133,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const audioRef = useRef<AudioEngine | null>(null);
   const bulletPoolRef = useRef(createBulletPool(80));
   const particlePoolRef = useRef(createParticlePool(160));
-  const lastHudKeyRef = useRef('');
+  const lastHudRef = useRef<HudSnapshot | null>(null);
 
   // Initialize stars
   const initStars = useCallback((w: number, h: number) => {
@@ -202,7 +218,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       if (touchInputRef) {
         touchInputRef.current = defaultTouchInput();
       }
-      lastHudKeyRef.current = '';
+      lastHudRef.current = null;
       gameDataRef.current = createDefaultGameData();
       shootCooldownRef.current = 0;
       frameRef.current = 0;
@@ -564,9 +580,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     if (onHudUpdate) {
       const snap = buildHudSnapshot(gd, player);
-      const key = JSON.stringify(snap);
-      if (key !== lastHudKeyRef.current) {
-        lastHudKeyRef.current = key;
+      if (!lastHudRef.current || !hudSnapshotEquals(snap, lastHudRef.current)) {
+        lastHudRef.current = snap;
         onHudUpdate(snap);
       }
     }
