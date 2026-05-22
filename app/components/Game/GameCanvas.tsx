@@ -21,8 +21,9 @@ const GameCanvas: React.FC<GameCanvasProps> = (props) => {
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 h-full w-full overflow-hidden bg-[var(--game-bg)]"
+      className="absolute inset-0 h-full w-full touch-none overflow-hidden bg-[var(--game-bg)]"
       aria-hidden="true"
+      onContextMenu={(e) => e.preventDefault()}
     />
   );
 };
