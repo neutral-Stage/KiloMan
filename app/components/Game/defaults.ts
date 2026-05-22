@@ -5,6 +5,8 @@ import {
   PLAYER_SHIP_HEIGHT,
   PLAYER_SHIP_SPEED,
   PLAYER_SHIP_WIDTH,
+  PLAYER_COLLISION_WIDTH,
+  PLAYER_COLLISION_HEIGHT,
 } from './constants';
 import { loadHighScore } from './storage';
 import { applyUnlockEffects } from './rewards/achievements';
@@ -17,6 +19,8 @@ export function createDefaultPlayer(cx: number, cy: number, progress?: PlayerPro
     vy: 0,
     width: PLAYER_SHIP_WIDTH,
     height: PLAYER_SHIP_HEIGHT,
+    collisionWidth: PLAYER_COLLISION_WIDTH,
+    collisionHeight: PLAYER_COLLISION_HEIGHT,
     speed: PLAYER_SHIP_SPEED,
     health: PLAYER_STARTING_HEALTH,
     maxHealth: PLAYER_STARTING_HEALTH,

@@ -2,71 +2,72 @@
 
 ## Overview
 
-Kilo Shooter is a single-route Next.js app. All gameplay runs in one client component (`GameCanvas`) using a `requestAnimationFrame` loop. React only manages high-level screen state; hot-path simulation uses refs to avoid re-renders.
+Kilo Shooter is a single-route Next.js app. Gameplay runs in a **Pixi.js 8** engine (`GameEngine`) driven by a state-aware `requestAnimationFrame` loop. React manages screen state, HUD, menus, and touch controls only.
 
 ## State layers
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Screen state | `GameContainer` → `useState<GameState>` | `start` \| `playing` \| `paused` \| `gameover` |
-| Simulation | `GameCanvas` refs | Player, bullets, enemies, particles, waves |
+| Screen state | `GameContainer` → `useState<GameState>` | `start` \| `playing` \| `paused` \| `gameover` \| `shop` |
+| Simulation | `GameEngine` | Player, bullets, enemies, particles, waves |
 | Persistence | `storage.ts`, `rewards/progress.ts` | High score and meta-progress in `localStorage` |
 
 ## Game loop
 
-1. **Input** — `keydown` / `keyup` on `window`; AudioContext unlocked on first gesture.
-2. **Update** — Runs only when `gameState === 'playing'`. Normalized delta time (~60fps cap).
-3. **Draw** — Clears canvas, draws stars, entities, HUD, overlays (pause / wave banner).
+1. **Input** — `InputSystem` registers stable `keydown` / `keyup` listeners; reads `touchInputRef` each frame.
+2. **Update** — Runs when `gameState === 'playing'`. Normalized delta time with VFX hit-stop/slow-mo multipliers.
+3. **Render** — `RenderSystem` syncs Pixi sprites to simulation state; parallax stars and nebula background.
 
-## Combat model
-
-- **Health** — 3 hull points per life; shield absorbs one hit without health loss.
-- **Lives** — Losing all health costs one life and resets hull; 0 lives → game over.
-- **Waves** — Spawn queue from `generateWave()`; completion when queue empty, counter zero, no enemies on screen.
+`GameLoop` throttles to ~15 FPS on idle menus (`start`, `gameover`, `shop`) and runs full rate during play.
 
 ## Module boundaries
 
 ```
-GameCanvas (orchestrator)
-    ├── defaults / storage     — factories & persistence
-    ├── waveGenerator          — wave patterns & createEnemy
-    ├── collision              — rectsOverlap
-    ├── AudioEngine            — Web Audio SFX
-    ├── constants              — tuning values
-    └── rendering/*            — pure draw functions (no game logic)
+GameContainer (React shell)
+    └── GameCanvas → useGameEngine hook
+            └── GameEngine
+                    ├── GameLoop
+                    ├── InputSystem
+                    ├── RenderSystem + TextureFactory
+                    ├── VfxSystem (shake, flash, hit-stop)
+                    ├── spatialHash (collision broadphase)
+                    ├── waveGenerator / waveLogic
+                    ├── collision / pool
+                    ├── AudioEngine
+                    └── rewards/* (achievements, shop, collectibles)
 ```
 
 ## Rendering
 
-All visuals are Canvas 2D. `rendering/` modules are pure functions: `(ctx, entities, frame) => void`. No React in the render path.
+- **Pixi.js** layered containers: background nebula → stars → entities → projectiles → VFX.
+- **TextureFactory** bakes procedural ship/enemy/bullet graphics to textures at init (no external sprite sheets).
+- React **UIOverlay** provides accessible HUD; boss HP bar when a boss is active.
+
+## Combat model
+
+- **Health** — 3 hull points per life; shield absorbs one hit without health loss.
+- **Hitboxes** — Smaller `collisionWidth` / `collisionHeight` than visual bounds for fair play.
+- **Waves** — Spawn queue from `generateWave()`; `waveEnemiesRemaining` decrements on kill only (not off-screen despawn).
+- **Collisions** — Spatial hash grid (~64px cells) for bullet↔enemy queries.
 
 ## Audio
 
-`AudioEngine` lazily creates `AudioContext` and resumes on user input. Explosion uses a noise buffer; other SFX use oscillators.
+`AudioEngine` uses Web Audio oscillators plus a **pre-allocated** explosion noise buffer. `playWaveStart()` plays between waves.
 
 ## Object pooling
 
-`pool.ts` provides `ObjectPool`, `createBulletPool`, and `createParticlePool`. The game loop uses `compactBullets` / `compactParticles` to remove dead entities in-place and return them to the pool instead of allocating new objects each frame.
+`pool.ts` — bullets and particles. Enemies/power-ups/collectibles use in-place compaction arrays.
 
 ## Touch controls
 
-`TouchControls.tsx` renders a mobile-only (`md:hidden`) virtual D-pad, fire button, and pause control. Input is written to a shared `touchInputRef` merged with keyboard state in `GameCanvas`.
-
-## Accessible HUD
-
-`UIOverlay.tsx` is a React overlay with `aria-live` regions, a semantic health `progressbar`, and labeled score/wave/lives. Canvas HUD drawing was removed during play; the game loop publishes `HudSnapshot` via `onHudUpdate`.
+`TouchControls.tsx` — mobile D-pad, fire, pause. Larger touch targets with active-state glow on fire.
 
 ## Tests
 
-Run `npm test` (Vitest). Coverage includes:
-
-- `collision.test.ts` — AABB overlap
-- `waveLogic.test.ts` — spawn queue, wave completion, `generateWave` integration
-- `pool.test.ts` — compact/release behavior
-- `achievements.test.ts` — unlock and reward grants
+Run `npm test` (Vitest): collision, waveLogic, pool, achievements.
 
 ## Rewards (meta-progress)
 
-Collectibles, achievements, and shop unlocks live under `rewards/`. Progress persists in `localStorage` (`kiloShooterProgress`). Open the shop from the start screen or press **S**.
+Collectibles, achievements, and shop unlocks under `rewards/`. Engine calls `checkAchievements` on a timer and emits HUD/progress updates via callbacks.
 
-> **Note:** `architecture_plan.md` describes an older **Kilo Man platformer** design that was not implemented. This document reflects the current **space shooter** codebase.
+> **Note:** `architecture_plan.md` describes an older platformer design. This document reflects the current space shooter.

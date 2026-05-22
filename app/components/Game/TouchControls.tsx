@@ -20,14 +20,14 @@ function Chevron({ dir }: { dir: 'up' | 'down' | 'left' | 'right' }) {
     right: 'M16 12l-6-6v12z',
   };
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden className="opacity-90">
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden className="opacity-95">
       <path fill="currentColor" d={paths[dir]} />
     </svg>
   );
 }
 
 const padBtn =
-  'flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-xl border border-[var(--game-border)] bg-[var(--game-surface)] text-[var(--game-text)] active:bg-[rgba(255,255,255,0.08)] touch-manipulation';
+  'flex h-[3.75rem] w-[3.75rem] items-center justify-center rounded-2xl border border-[var(--game-border-strong)] bg-[var(--game-surface)] text-[var(--game-text)] shadow-[0_4px_16px_rgba(0,0,0,0.35)] active:scale-95 active:border-[var(--game-accent)] active:bg-[var(--game-accent-dim)] touch-manipulation transition-transform';
 
 const TouchControls: React.FC<TouchControlsProps> = ({
   gameState,
@@ -69,12 +69,14 @@ const TouchControls: React.FC<TouchControlsProps> = ({
     return null;
   }
 
+  const fireActive = touchInputRef.current.fire;
+
   return (
     <div
       className="absolute inset-0 z-[15] touch-none select-none md:hidden"
       aria-label="Touch game controls"
     >
-      <div className="absolute bottom-5 left-4 grid grid-cols-3 grid-rows-3 gap-1.5">
+      <div className="absolute bottom-6 left-4 grid grid-cols-3 grid-rows-3 gap-2">
         <div />
         <button {...bindButton('up', 'Move up')} className={padBtn}>
           <Chevron dir="up" />
@@ -83,7 +85,7 @@ const TouchControls: React.FC<TouchControlsProps> = ({
         <button {...bindButton('left', 'Move left')} className={padBtn}>
           <Chevron dir="left" />
         </button>
-        <div className="h-[3.25rem] w-[3.25rem]" aria-hidden />
+        <div className="h-[3.75rem] w-[3.75rem]" aria-hidden />
         <button {...bindButton('right', 'Move right')} className={padBtn}>
           <Chevron dir="right" />
         </button>
@@ -94,18 +96,22 @@ const TouchControls: React.FC<TouchControlsProps> = ({
         <div />
       </div>
 
-      <div className="absolute right-4 bottom-5 flex flex-col items-end gap-3">
+      <div className="absolute right-4 bottom-6 flex flex-col items-end gap-3">
         <button
           type="button"
           onClick={onPauseToggle}
-          className="game-btn game-btn--ghost h-11 min-w-[4.5rem] px-4 text-sm"
+          className="game-btn game-btn--ghost h-12 min-w-[5rem] px-4 text-sm"
           aria-label={gameState === 'paused' ? 'Resume game' : 'Pause game'}
         >
           {gameState === 'paused' ? 'Resume' : 'Pause'}
         </button>
         <button
           {...bindButton('fire', 'Fire')}
-          className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full border border-[var(--game-border-strong)] bg-[var(--game-accent-dim)] font-medium text-sm text-[var(--game-accent)] active:scale-[0.98] touch-manipulation"
+          className={`flex h-[5rem] w-[5rem] items-center justify-center rounded-full border-2 font-semibold text-sm touch-manipulation transition-all ${
+            fireActive
+              ? 'border-[var(--game-accent)] bg-[var(--game-accent-dim)] text-[var(--game-accent)] shadow-[0_0_24px_var(--game-glow)] scale-95'
+              : 'border-[var(--game-border-strong)] bg-[var(--game-surface)] text-[var(--game-accent)]'
+          }`}
         >
           Fire
         </button>
