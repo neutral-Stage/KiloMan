@@ -1,4 +1,4 @@
-import type { Achievement, PlayerProgress, Unlock } from '../types';
+import type { Achievement, PlayerProgress, Unlock, UnlockId } from '../types';
 import { ACHIEVEMENTS, PROGRESS_STORAGE_KEY, UNLOCKS } from './constants';
 
 export function createDefaultPlayerProgress(): PlayerProgress {
