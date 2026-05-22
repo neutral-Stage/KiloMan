@@ -46,9 +46,9 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ gameState, hud }) => {
           </p>
         </div>
 
-        <div className="text-right" aria-label={`${hud.lives} lives`}>
+        <div className="text-right">
           <span className="game-label">Lives</span>
-          <p className="mt-1 flex justify-end gap-1" aria-hidden="true">
+          <p className="mt-1 flex justify-end gap-1" aria-hidden="true" aria-label={`${hud.lives} lives`}>
             {Array.from({ length: hud.lives }, (_, i) => (
               <span
                 key={i}
@@ -56,6 +56,17 @@ const UIOverlay: React.FC<UIOverlayProps> = ({ gameState, hud }) => {
               />
             ))}
           </p>
+          {(hud.sessionCoins > 0 || hud.totalCoins > 0) && (
+            <p className="game-stat mt-2 text-xs text-[var(--game-warm)]">
+              {hud.sessionCoins > 0 ? `+${hud.sessionCoins} ` : ''}
+              {hud.totalCoins.toLocaleString()} coins
+            </p>
+          )}
+          {hud.noDamageStreak > 0 && (
+            <p className="mt-1 text-[10px] text-[var(--game-success)]">
+              Flawless ×{hud.noDamageStreak}
+            </p>
+          )}
         </div>
       </header>
 

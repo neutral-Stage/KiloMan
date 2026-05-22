@@ -3,14 +3,18 @@
 import React, { useCallback, useRef, useState } from 'react';
 import GameCanvas from './GameCanvas';
 import GameScreens from './GameScreens';
+import ShopScreen from './ShopScreen';
 import UIOverlay from './UIOverlay';
 import TouchControls, { resetTouchInput } from './TouchControls';
-import { GameState, HudSnapshot, TouchInput, defaultTouchInput } from './types';
+import { GameState, HudSnapshot, PlayerProgress, TouchInput, UnlockId, defaultTouchInput } from './types';
 import { loadHighScore } from './storage';
+import { loadPlayerProgress } from './rewards/progress';
 
 const GameContainer: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>('start');
   const [hud, setHud] = useState<HudSnapshot | null>(null);
+  const [progress, setProgress] = useState<PlayerProgress>(() => loadPlayerProgress());
+  const [pendingPurchase, setPendingPurchase] = useState<UnlockId | null>(null);
   const touchInputRef = useRef<TouchInput>(defaultTouchInput());
 
   const handleStart = useCallback(() => {
@@ -24,6 +28,14 @@ const GameContainer: React.FC = () => {
       if (s === 'paused') return 'playing';
       return s;
     });
+  }, []);
+
+  const handleOpenShop = useCallback(() => {
+    setGameState('shop');
+  }, []);
+
+  const handleShopPurchase = useCallback((id: UnlockId) => {
+    setPendingPurchase(id);
   }, []);
 
   const score = hud?.score ?? 0;
@@ -40,7 +52,10 @@ const GameContainer: React.FC = () => {
         gameState={gameState}
         setGameState={setGameState}
         onHudUpdate={setHud}
+        onProgressUpdate={setProgress}
         touchInputRef={touchInputRef}
+        shopPurchaseId={pendingPurchase}
+        onShopPurchaseHandled={() => setPendingPurchase(null)}
       />
       <UIOverlay gameState={gameState} hud={hud} />
       <GameScreens
@@ -48,9 +63,18 @@ const GameContainer: React.FC = () => {
         score={score}
         wave={wave}
         highScore={highScore}
+        totalCoins={progress.totalCoins}
         onStart={handleStart}
         onRestart={handleStart}
+        onOpenShop={handleOpenShop}
       />
+      {gameState === 'shop' && (
+        <ShopScreen
+          progress={progress}
+          onPurchase={handleShopPurchase}
+          onClose={() => setGameState('start')}
+        />
+      )}
       <TouchControls
         gameState={gameState}
         touchInputRef={touchInputRef}

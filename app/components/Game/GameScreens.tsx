@@ -9,8 +9,10 @@ interface GameScreensProps {
   score: number;
   wave: number;
   highScore: number;
+  totalCoins?: number;
   onStart: () => void;
   onRestart: () => void;
+  onOpenShop?: () => void;
 }
 
 export default function GameScreens({
@@ -18,8 +20,10 @@ export default function GameScreens({
   score,
   wave,
   highScore,
+  totalCoins = 0,
   onStart,
   onRestart,
+  onOpenShop,
 }: GameScreensProps) {
   const [storedBest, setStoredBest] = useState(0);
 
@@ -69,7 +73,7 @@ export default function GameScreens({
           </p>
         )}
 
-        <div className="mt-8">
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
           <button
             type="button"
             className="game-btn w-full sm:w-auto"
@@ -78,11 +82,16 @@ export default function GameScreens({
           >
             {isStart ? "Start game" : isPaused ? "Resume" : "Play again"}
           </button>
+          {isStart && onOpenShop && (
+            <button type="button" className="game-btn game-btn--ghost w-full sm:w-auto" onClick={onOpenShop}>
+              Shop ({totalCoins.toLocaleString()} coins)
+            </button>
+          )}
         </div>
 
         {isStart && (
           <p className="mt-6 text-[11px] text-[var(--game-text-muted)]">
-            Esc pauses during play · Keyboard and touch supported
+            Esc pauses during play · Press S for shop · Keyboard and touch supported
           </p>
         )}
       </div>

@@ -10,7 +10,7 @@ Kilo Shooter is a single-route Next.js app. All gameplay runs in one client comp
 |-------|----------|---------|
 | Screen state | `GameContainer` → `useState<GameState>` | `start` \| `playing` \| `paused` \| `gameover` |
 | Simulation | `GameCanvas` refs | Player, bullets, enemies, particles, waves |
-| Persistence | `storage.ts` | High score in `localStorage` |
+| Persistence | `storage.ts`, `rewards/progress.ts` | High score and meta-progress in `localStorage` |
 
 ## Game loop
 
@@ -63,5 +63,10 @@ Run `npm test` (Vitest). Coverage includes:
 - `collision.test.ts` — AABB overlap
 - `waveLogic.test.ts` — spawn queue, wave completion, `generateWave` integration
 - `pool.test.ts` — compact/release behavior
+- `achievements.test.ts` — unlock and reward grants
+
+## Rewards (meta-progress)
+
+Collectibles, achievements, and shop unlocks live under `rewards/`. Progress persists in `localStorage` (`kiloShooterProgress`). Open the shop from the start screen or press **S**.
 
 > **Note:** `architecture_plan.md` describes an older **Kilo Man platformer** design that was not implemented. This document reflects the current **space shooter** codebase.

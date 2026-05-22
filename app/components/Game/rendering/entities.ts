@@ -1,15 +1,36 @@
-import { Enemy, PlayerShip, PowerUp } from '../types';
+import { Enemy, PlayerShip, PowerUp, ShipSkin } from '../types';
 import { COLORS } from '../constants';
+
+function skinPalette(skin: ShipSkin) {
+  switch (skin) {
+    case 'gold':
+      return { hull: '#c9a227', highlight: '#f0d878', cockpit: '#ffe08a', thruster: '#e8c06a' };
+    case 'neon':
+      return { hull: '#3d5a80', highlight: '#6eb5ff', cockpit: '#a8d4ff', thruster: '#6eb5ff' };
+    case 'stealth':
+      return { hull: '#2a3344', highlight: '#4a5568', cockpit: '#6b7d8f', thruster: '#4a5568' };
+    case 'vintage':
+      return { hull: '#8b6f47', highlight: '#c4a574', cockpit: '#e8d4b0', thruster: '#c4844a' };
+    default:
+      return {
+        hull: COLORS.playerHull,
+        highlight: COLORS.playerHighlight,
+        cockpit: COLORS.playerCockpit,
+        thruster: COLORS.thrusterCore,
+      };
+  }
+}
 
 export function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip, frame: number) {
   const cx = p.x + p.width / 2;
   const cy = p.y + p.height / 2;
+  const palette = skinPalette(p.shipSkin);
 
   ctx.save();
 
   const flicker = Math.sin(p.thrusterFrame * 0.5) * 3;
   const thrusterGrad = ctx.createLinearGradient(cx, p.y + p.height, cx, p.y + p.height + 16 + flicker);
-  thrusterGrad.addColorStop(0, COLORS.thrusterCore);
+  thrusterGrad.addColorStop(0, palette.thruster);
   thrusterGrad.addColorStop(0.6, COLORS.warmDeep);
   thrusterGrad.addColorStop(1, COLORS.thrusterFade);
   ctx.fillStyle = thrusterGrad;
@@ -19,7 +40,7 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip, frame: 
   ctx.lineTo(cx + 7, p.y + p.height);
   ctx.fill();
 
-  ctx.fillStyle = COLORS.playerHull;
+  ctx.fillStyle = palette.hull;
   ctx.beginPath();
   ctx.moveTo(cx, p.y);
   ctx.lineTo(cx + 18, p.y + 30);
@@ -33,12 +54,12 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip, frame: 
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = COLORS.playerCockpit;
+  ctx.fillStyle = palette.cockpit;
   ctx.beginPath();
   ctx.ellipse(cx, p.y + 16, 4, 8, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = COLORS.playerHighlight;
+  ctx.strokeStyle = palette.highlight;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(cx - 14, p.y + 28);
