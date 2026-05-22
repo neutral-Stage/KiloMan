@@ -4,9 +4,11 @@ export const LOGO_PATH = '/KiloLogo.svg';
 
 export const PLAYER_SHIP_WIDTH = 40;
 export const PLAYER_SHIP_HEIGHT = 44;
+export const PLAYER_COLLISION_WIDTH = 26;
+export const PLAYER_COLLISION_HEIGHT = 34;
 export const PLAYER_SHIP_SPEED = 5;
-export const PLAYER_ACCELERATION = 0.18;
-export const PLAYER_MAX_SPEED = 3.2;
+export const PLAYER_ACCELERATION = 0.28;
+export const PLAYER_MAX_SPEED = 5.5;
 export const PLAYER_DECELERATION = 0.86;
 export const COAST_DRAG = 0.95;
 export const MOVEMENT_SNAP_THRESHOLD = 0.05;
@@ -26,7 +28,10 @@ export const POWER_UP_DROP_CHANCE = 0.25;
 export const BOSS_WAVE_INTERVAL = 5;
 export const BETWEEN_WAVE_DELAY = 120;
 export const STAR_LAYERS = 3;
-export const STAR_COUNT = 150;
+export const STAR_COUNT = 200;
+export const SPATIAL_CELL_SIZE = 64;
+export const MENU_LOOP_FPS = 15;
+export const OFF_SCREEN_ENEMY_PENALTY = false;
 
 /** Canvas palette — restrained, no neon defaults */
 export const COLORS = {

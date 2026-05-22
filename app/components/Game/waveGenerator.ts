@@ -68,27 +68,31 @@ export function createEnemy(type: EnemyType, canvasWidth: number, cameraY: numbe
   switch (type) {
     case 'basic':
       return {
-        ...base, x, width: 30, height: 30, speed: 2, points: 100,
+        ...base, x, width: 30, height: 30, collisionWidth: 22, collisionHeight: 22,
+        speed: 2, points: 100,
         pattern: 'straight', color: COLORS.enemyBasic,
         shootInterval: 90 + Math.random() * 60, startX: x,
       };
     case 'zigzag':
       return {
-        ...base, x, width: 28, height: 28, speed: 2.5, points: 200,
+        ...base, x, width: 28, height: 28, collisionWidth: 20, collisionHeight: 20,
+        speed: 2.5, points: 200,
         pattern: 'zigzag', color: COLORS.enemyZigzag,
         patternAmplitude: 80 + Math.random() * 60, startX: x,
         shootInterval: 100 + Math.random() * 40,
       };
     case 'swooper':
       return {
-        ...base, x, width: 32, height: 26, speed: 3, points: 300,
+        ...base, x, width: 32, height: 26, collisionWidth: 24, collisionHeight: 18,
+        speed: 3, points: 300,
         pattern: 'swoop', color: COLORS.enemySwooper,
         patternAmplitude: 120, startX: x,
         shootInterval: 70 + Math.random() * 50,
       };
     case 'tank':
       return {
-        ...base, x, width: 40, height: 40, speed: 1, points: 500,
+        ...base, x, width: 40, height: 40, collisionWidth: 32, collisionHeight: 32,
+        speed: 1, points: 500,
         health: 5, maxHealth: 5, pattern: 'straight', color: COLORS.enemyTank,
         shootInterval: 50 + Math.random() * 30, startX: x,
       };
@@ -97,13 +101,15 @@ export function createEnemy(type: EnemyType, canvasWidth: number, cameraY: numbe
         ...base,
         x: canvasWidth / 2 - 60,
         y: -120,
-        width: 120, height: 80, speed: 1.5, points: 5000,
+        width: 120, height: 80, collisionWidth: 100, collisionHeight: 64,
+        speed: 1.5, points: 5000,
         health: 50, maxHealth: 50, pattern: 'boss', color: COLORS.boss,
         shootInterval: 20, startX: canvasWidth / 2 - 60, isBoss: true,
       };
     default:
       return {
-        ...base, x, width: 30, height: 30, speed: 2, points: 100,
+        ...base, x, width: 30, height: 30, collisionWidth: 22, collisionHeight: 22,
+        speed: 2, points: 100,
         pattern: 'straight', color: COLORS.enemyBasic, startX: x,
       };
   }

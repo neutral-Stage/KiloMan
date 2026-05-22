@@ -42,6 +42,7 @@ export interface HudSnapshot {
   sessionGems: number;
   noDamageStreak: number;
   shipSkin: ShipSkin;
+  bossHealth: { current: number; max: number } | null;
 }
 
 export interface PlayerShip {
@@ -51,6 +52,9 @@ export interface PlayerShip {
   vy: number;
   width: number;
   height: number;
+  /** Smaller hitbox than visual for fair collisions */
+  collisionWidth: number;
+  collisionHeight: number;
   speed: number;
   health: number;
   maxHealth: number;
@@ -89,6 +93,8 @@ export interface Enemy {
   y: number;
   width: number;
   height: number;
+  collisionWidth: number;
+  collisionHeight: number;
   health: number;
   maxHealth: number;
   type: EnemyType;
