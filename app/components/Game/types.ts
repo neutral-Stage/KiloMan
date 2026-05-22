@@ -225,6 +225,7 @@ export interface Star {
   speed: number;
   size: number;
   brightness: number;
+  layer: number;
 }
 
 export interface WaveConfig {

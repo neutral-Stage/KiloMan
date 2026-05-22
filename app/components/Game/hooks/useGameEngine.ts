@@ -23,20 +23,33 @@ export function useGameEngine(
   const loopRef = useRef<GameLoop | null>(null);
   const gameStateRef = useRef(options.gameState);
   const prevPlayingRef = useRef(false);
-
+  const pendingResetRef = useRef(false);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   gameStateRef.current = options.gameState;
+
+  const tryResetRun = useCallback(() => {
+    const engine = engineRef.current;
+    if (engine) {
+      engine.resetRun();
+      pendingResetRef.current = false;
+    } else {
+      pendingResetRef.current = true;
+    }
+  }, []);
 
   const initEngine = useCallback(async () => {
     const el = containerRef.current;
     if (!el || engineRef.current) return;
 
     const engine = new GameEngine();
+    const opts = optionsRef.current;
     await engine.init(el, {
       getGameState: () => gameStateRef.current,
-      setGameState: options.setGameState,
-      onHudUpdate: options.onHudUpdate,
-      onProgressUpdate: options.onProgressUpdate,
-      touchInputRef: options.touchInputRef,
+      setGameState: (s) => opts.setGameState(s),
+      onHudUpdate: (h) => opts.onHudUpdate?.(h),
+      onProgressUpdate: (p) => opts.onProgressUpdate?.(p),
+      touchInputRef: opts.touchInputRef,
     });
     engineRef.current = engine;
 
@@ -46,13 +59,11 @@ export function useGameEngine(
       () => gameStateRef.current,
       (dt, gs) => engine.tick(dt, gs),
     );
-  }, [
-    containerRef,
-    options.setGameState,
-    options.onHudUpdate,
-    options.onProgressUpdate,
-    options.touchInputRef,
-  ]);
+
+    if (pendingResetRef.current || gameStateRef.current === 'playing') {
+      tryResetRun();
+    }
+  }, [containerRef, tryResetRun]);
 
   useEffect(() => {
     initEngine();
@@ -64,35 +75,36 @@ export function useGameEngine(
     };
   }, [initEngine]);
 
-  const {
-    gameState,
-    shopPurchaseId,
-    onShopPurchaseHandled,
-  } = options;
+  const { gameState, shopPurchaseId, onShopPurchaseHandled } = options;
 
   useEffect(() => {
-    const engine = engineRef.current;
-    if (!engine) return;
-
     const isPlaying = gameState === 'playing';
     if (isPlaying && !prevPlayingRef.current) {
-      engine.resetRun();
+      tryResetRun();
     }
     prevPlayingRef.current = isPlaying;
 
-    if (gameState === 'shop' && shopPurchaseId) {
-      engine.handleShopPurchase(shopPurchaseId);
+    if (gameState === 'shop' && shopPurchaseId && engineRef.current) {
+      engineRef.current.handleShopPurchase(shopPurchaseId);
       onShopPurchaseHandled?.();
     }
-  }, [gameState, shopPurchaseId, onShopPurchaseHandled]);
+  }, [gameState, shopPurchaseId, onShopPurchaseHandled, tryResetRun]);
 
   useEffect(() => {
     const handleResize = () => {
-      const engine = engineRef.current;
-      if (!engine || !containerRef.current) return;
-      engine.resize(window.innerWidth, window.innerHeight);
+      engineRef.current?.resize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [containerRef]);
+  }, []);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden && gameStateRef.current === 'playing') {
+        optionsRef.current.setGameState('paused');
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
 }

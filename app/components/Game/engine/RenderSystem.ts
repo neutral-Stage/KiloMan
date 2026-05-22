@@ -16,7 +16,7 @@ import type {
   RewardPopup,
   Star,
 } from '../types';
-import { STAR_COUNT, STAR_LAYERS } from '../constants';
+import { STAR_COUNT, STAR_LAYERS, STAR_REDRAW_INTERVAL } from '../constants';
 import type { GameTextures } from './TextureFactory';
 import type { VfxSystem } from './VfxSystem';
 
@@ -30,8 +30,10 @@ export class RenderSystem {
   private vfxLayer: Container;
   private uiLayer: Container;
   private nebula: TilingSprite | null = null;
+  private vignette: Graphics | null = null;
   private flashOverlay: Graphics;
   private stars: Star[] = [];
+  private starFrame = 0;
 
   private playerSprite: Sprite | null = null;
   private enemySprites = new Map<Enemy, Sprite>();
@@ -57,6 +59,7 @@ export class RenderSystem {
 
     this.flashOverlay = new Graphics();
     this.particleGfx = new Graphics();
+    this.vfxLayer.addChild(this.particleGfx);
 
     this.root.addChild(this.bgLayer);
     this.root.addChild(this.world);
@@ -72,23 +75,25 @@ export class RenderSystem {
 
   resize(w: number, h: number): void {
     this.initStars(w, h);
-    if (this.nebula) {
-      this.nebula.width = w;
-      this.nebula.height = h;
-    } else {
+    if (!this.nebula) {
       this.nebula = new TilingSprite({
         texture: this.textures.nebula,
         width: w,
         height: h,
       });
       this.bgLayer.addChild(this.nebula);
+    } else {
+      this.nebula.width = w;
+      this.nebula.height = h;
     }
-    const vig = new Graphics();
-    vig.rect(0, 0, w, h);
-    vig.fill({ color: 0x000000, alpha: 0.25 });
-    this.bgLayer.removeChildren();
-    this.bgLayer.addChild(this.nebula);
-    this.bgLayer.addChild(vig);
+
+    if (!this.vignette) {
+      this.vignette = new Graphics();
+      this.bgLayer.addChild(this.vignette);
+    }
+    this.vignette.clear();
+    this.vignette.rect(0, 0, w, h);
+    this.vignette.fill({ color: 0x000000, alpha: 0.25 });
   }
 
   initStars(w: number, h: number): void {
@@ -101,16 +106,21 @@ export class RenderSystem {
         speed: 0.5 + layer * 1.2,
         size: 1 + layer * 0.5,
         brightness: 0.3 + layer * 0.25,
+        layer,
       });
     }
+    this.starFrame = 0;
     this.redrawStars();
   }
 
   private redrawStars(): void {
     this.starLayer.clear();
-    for (const star of this.stars) {
-      this.starLayer.circle(star.x, star.y, star.size * 0.5);
-      this.starLayer.fill({ color: 0xe2e8f0, alpha: star.brightness });
+    for (let layer = 0; layer < STAR_LAYERS; layer++) {
+      for (const star of this.stars) {
+        if (star.layer !== layer) continue;
+        this.starLayer.circle(star.x, star.y, star.size * 0.5);
+      }
+      this.starLayer.fill({ color: 0xe2e8f0, alpha: 0.3 + layer * 0.25 });
     }
   }
 
@@ -126,7 +136,36 @@ export class RenderSystem {
         star.x = Math.random() * w;
       }
     }
-    this.redrawStars();
+    this.starFrame++;
+    if (this.starFrame % STAR_REDRAW_INTERVAL === 0) {
+      this.redrawStars();
+    }
+  }
+
+  clearDynamicSprites(): void {
+    this.releaseSpriteMap(this.enemySprites, this.entityLayer);
+    this.releaseSpriteMap(this.bulletSprites, this.projectileLayer);
+    this.releaseSpriteMap(this.powerSprites, this.entityLayer);
+    this.releaseSpriteMap(this.collectibleSprites, this.entityLayer);
+    for (const [, t] of this.popupTexts) {
+      this.uiLayer.removeChild(t);
+      t.destroy();
+    }
+    this.popupTexts.clear();
+    if (this.playerSprite) {
+      this.entityLayer.removeChild(this.playerSprite);
+      this.playerSprite.destroy();
+      this.playerSprite = null;
+    }
+    this.particleGfx.clear();
+  }
+
+  private releaseSpriteMap<T>(map: Map<T, Sprite>, layer: Container): void {
+    for (const [, spr] of map) {
+      layer.removeChild(spr);
+      spr.destroy();
+    }
+    map.clear();
   }
 
   sync(
@@ -143,20 +182,11 @@ export class RenderSystem {
     this.vfx.applyShake(this.world);
 
     if (gameState !== 'playing' && gameState !== 'paused') {
-      this.entityLayer.removeChildren();
-      this.projectileLayer.removeChildren();
-      this.vfxLayer.removeChildren();
-      this.enemySprites.clear();
-      this.bulletSprites.clear();
-      this.powerSprites.clear();
-      this.collectibleSprites.clear();
-      this.popupTexts.clear();
-      this.playerSprite = null;
+      this.clearDynamicSprites();
       this.drawFlash();
       return;
     }
 
-    // Player
     const skinTextures = this.textures.player[player.shipSkin];
     const thrusterFrame = Math.floor(player.thrusterFrame / 4) % 2;
     if (!this.playerSprite) {
@@ -170,103 +200,79 @@ export class RenderSystem {
     this.playerSprite.visible =
       player.invincibleTimer <= 0 || Math.floor(frame / 4) % 2 === 0;
 
-    // Enemies
-    const activeEnemies = new Set(enemies);
-    for (const [e, spr] of this.enemySprites) {
-      if (!activeEnemies.has(e)) {
-        this.entityLayer.removeChild(spr);
-        this.enemySprites.delete(e);
-      }
-    }
-    for (const e of enemies) {
-      let spr = this.enemySprites.get(e);
-      if (!spr) {
-        spr = new Sprite(this.textures.enemies[e.type]);
-        spr.anchor.set(0.5);
-        this.entityLayer.addChild(spr);
-        this.enemySprites.set(e, spr);
-      }
+    this.syncSprites(enemies, this.enemySprites, this.entityLayer, (e, spr) => {
+      spr.texture = this.textures.enemies[e.type];
       spr.x = e.x + e.width / 2;
       spr.y = e.y + e.height / 2;
-    }
+    }, (e) => new Sprite(this.textures.enemies[e.type]));
 
-    // Bullets
-    const activeBullets = new Set(bullets);
-    for (const [b, spr] of this.bulletSprites) {
-      if (!activeBullets.has(b)) {
-        this.projectileLayer.removeChild(spr);
-        this.bulletSprites.delete(b);
-      }
-    }
-    for (const b of bullets) {
-      let spr = this.bulletSprites.get(b);
-      if (!spr) {
-        spr = new Sprite(b.isPlayerBullet ? this.textures.bulletPlayer : this.textures.bulletEnemy);
-        spr.anchor.set(0.5);
-        this.projectileLayer.addChild(spr);
-        this.bulletSprites.set(b, spr);
-      }
+    this.syncSprites(bullets, this.bulletSprites, this.projectileLayer, (b, spr) => {
+      spr.texture = b.isPlayerBullet ? this.textures.bulletPlayer : this.textures.bulletEnemy;
       spr.x = b.x + b.width / 2;
       spr.y = b.y + b.height / 2;
       if (b.isPlayerBullet) {
         spr.scale.set(1, 1.2);
         spr.alpha = 0.95;
+      } else {
+        spr.scale.set(1);
+        spr.alpha = 1;
       }
-    }
+    }, (b) => new Sprite(b.isPlayerBullet ? this.textures.bulletPlayer : this.textures.bulletEnemy));
 
-    // Power-ups
-    const activePu = new Set(powerUps);
-    for (const [pu, spr] of this.powerSprites) {
-      if (!activePu.has(pu)) {
-        this.entityLayer.removeChild(spr);
-        this.powerSprites.delete(pu);
-      }
-    }
-    for (const pu of powerUps) {
-      let spr = this.powerSprites.get(pu);
-      if (!spr) {
-        spr = new Sprite(this.textures.powerUps[pu.type]);
-        spr.anchor.set(0.5);
-        this.entityLayer.addChild(spr);
-        this.powerSprites.set(pu, spr);
-      }
+    this.syncSprites(powerUps, this.powerSprites, this.entityLayer, (pu, spr) => {
       const pulse = Math.sin(frame * 0.08) * 0.08;
       spr.x = pu.x + pu.width / 2;
       spr.y = pu.y + pu.height / 2;
       spr.scale.set(1 + pulse);
-    }
+    }, (pu) => new Sprite(this.textures.powerUps[pu.type]));
 
-    // Collectibles
-    const activeCol = new Set(collectibles);
-    for (const [c, spr] of this.collectibleSprites) {
-      if (!activeCol.has(c)) {
-        this.entityLayer.removeChild(spr);
-        this.collectibleSprites.delete(c);
-      }
-    }
-    for (const c of collectibles) {
-      let spr = this.collectibleSprites.get(c);
-      if (!spr) {
-        const tex =
-          c.type === 'coin'
-            ? this.textures.coin
-            : c.type === 'gem'
-              ? this.textures.gem
-              : this.textures.diamond;
-        spr = new Sprite(tex);
-        spr.anchor.set(0.5);
-        this.entityLayer.addChild(spr);
-        this.collectibleSprites.set(c, spr);
-      }
+    this.syncSprites(collectibles, this.collectibleSprites, this.entityLayer, (c, spr) => {
       spr.x = c.x + c.width / 2;
       spr.y = c.y + c.height / 2;
-    }
+    }, (c) => {
+      const tex =
+        c.type === 'coin' ? this.textures.coin : c.type === 'gem' ? this.textures.gem : this.textures.diamond;
+      return new Sprite(tex);
+    });
 
-    // Popups
-    const activePop = new Set(popups);
+    this.syncPopups(popups);
+    this.drawParticles(particles);
+    this.drawFlash();
+  }
+
+  private syncSprites<T>(
+    items: T[],
+    map: Map<T, Sprite>,
+    layer: Container,
+    update: (item: T, spr: Sprite) => void,
+    create: (item: T) => Sprite,
+  ): void {
+    const active = new Set(items);
+    for (const [item, spr] of map) {
+      if (!active.has(item)) {
+        layer.removeChild(spr);
+        spr.destroy();
+        map.delete(item);
+      }
+    }
+    for (const item of items) {
+      let spr = map.get(item);
+      if (!spr) {
+        spr = create(item);
+        spr.anchor.set(0.5);
+        layer.addChild(spr);
+        map.set(item, spr);
+      }
+      update(item, spr);
+    }
+  }
+
+  private syncPopups(popups: RewardPopup[]): void {
+    const active = new Set(popups);
     for (const [rp, t] of this.popupTexts) {
-      if (!activePop.has(rp)) {
+      if (!active.has(rp)) {
         this.uiLayer.removeChild(t);
+        t.destroy();
         this.popupTexts.delete(rp);
       }
     }
@@ -286,22 +292,22 @@ export class RenderSystem {
         this.uiLayer.addChild(t);
         this.popupTexts.set(rp, t);
       }
+      t.text = rp.text;
       t.x = rp.x;
       t.y = rp.y;
       t.alpha = Math.max(0, rp.life / rp.maxLife);
     }
+  }
 
-    // Particles
-    this.vfxLayer.removeChildren();
+  private drawParticles(particles: GameParticle[]): void {
     this.particleGfx.clear();
+    if (particles.length === 0) return;
+
     for (const p of particles) {
       const alpha = Math.max(0, p.life / p.maxLife);
       this.particleGfx.circle(p.x, p.y, Math.max(0.5, p.size));
       this.particleGfx.fill({ color: p.color, alpha });
     }
-    this.vfxLayer.addChild(this.particleGfx);
-
-    this.drawFlash();
   }
 
   private drawFlash(): void {
@@ -315,6 +321,7 @@ export class RenderSystem {
   }
 
   destroy(): void {
+    this.clearDynamicSprites();
     this.app.stage.removeChild(this.root);
     this.root.destroy({ children: true });
   }

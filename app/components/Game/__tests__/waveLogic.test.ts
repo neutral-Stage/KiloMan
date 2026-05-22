@@ -4,6 +4,7 @@ import {
   isWaveComplete,
   getSpawnEntriesDue,
   filterFutureSpawnEntries,
+  drainSpawnQueue,
   startWaveFromConfig,
 } from '../waveLogic';
 import { WaveConfig, GameData } from '../types';
@@ -75,6 +76,13 @@ describe('spawn queue helpers', () => {
       { type: 'basic', spawnAt: 30 },
       { type: 'tank', spawnAt: 60 },
     ]);
+  });
+
+  it('drainSpawnQueue mutates queue and returns due entries', () => {
+    const q = [...queue];
+    const due = drainSpawnQueue(q, 30);
+    expect(due).toHaveLength(2);
+    expect(q).toEqual([{ type: 'tank', spawnAt: 60 }]);
   });
 });
 

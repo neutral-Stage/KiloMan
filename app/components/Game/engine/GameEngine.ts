@@ -32,8 +32,7 @@ import {
 import {
   startWaveFromConfig,
   isWaveComplete,
-  getSpawnEntriesDue,
-  filterFutureSpawnEntries,
+  drainSpawnQueue,
 } from '../waveLogic';
 import {
   checkAchievements,
@@ -62,6 +61,9 @@ import {
   LANDING_VERTICAL_SPEED_THRESHOLD,
   OFF_SCREEN_ENEMY_PENALTY,
   SPATIAL_CELL_SIZE,
+  MAX_PARTICLES,
+  MAX_REWARD_POPUPS,
+  ENEMY_RAM_DESTROY_NON_BOSS,
 } from '../constants';
 import { createGameTextures } from './TextureFactory';
 import { RenderSystem } from './RenderSystem';
@@ -123,6 +125,7 @@ export class GameEngine {
   private bulletPool = createBulletPool(80);
   private particlePool = createParticlePool(160);
   private enemyHash = new SpatialHash<Enemy>(SPATIAL_CELL_SIZE);
+  private collisionSeen = new Set<Enemy>();
   private audio = new AudioEngine();
   private callbacks: GameEngineCallbacks | null = null;
   private detachInput: (() => void) | null = null;
@@ -191,7 +194,13 @@ export class GameEngine {
     this.gameData = createDefaultGameData();
     this.shootCooldown = 0;
     this.frame = 0;
+    this.vfx.shakeFrames = 0;
+    this.vfx.hitStopFrames = 0;
+    this.vfx.flashAlpha = 0;
+    this.vfx.slowMoFrames = 0;
+    this.render?.clearDynamicSprites();
     this.render?.initStars(this.width, this.height);
+    this.emitHud(this.gameData, this.player);
   }
 
   tick(dt: number, gameState: GameState): void {
@@ -200,7 +209,7 @@ export class GameEngine {
     if (gameState === 'playing') {
       const vfxMult = this.vfx.update(dt);
       this.updatePlaying(dt * vfxMult);
-    } else {
+    } else if (gameState === 'start' || gameState === 'gameover' || gameState === 'shop') {
       this.vfx.update(dt * 0.5);
       this.render.updateStars(dt, this.height, this.width);
     }
@@ -238,10 +247,11 @@ export class GameEngine {
     render.updateStars(dt, H, W);
 
     for (const b of this.bullets) {
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
+      if (!b.destroyed) {
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+      }
     }
-    compactBullets(this.bullets, this.bulletPool, W, H);
 
     this.updateEnemies(dt, W, H);
     this.compactPowerUps(H, dt);
@@ -250,6 +260,7 @@ export class GameEngine {
     this.updateParticles(dt);
 
     this.resolveCollisions(player, gd, W, H);
+    compactBullets(this.bullets, this.bulletPool, W, H);
     this.updateWaves(gd, W, dt);
 
     if (gd.score > gd.highScore) gd.highScore = gd.score;
@@ -476,8 +487,11 @@ export class GameEngine {
     for (const bullet of this.bullets) {
       if (!bullet.isPlayerBullet || bullet.destroyed) continue;
       const bh = centeredHitbox(bullet.x, bullet.y, bullet.width, bullet.height, bullet.width, bullet.height);
+      this.collisionSeen.clear();
       this.enemyHash.query(bh.x, bh.y, bh.w, bh.h, (enemy) => {
-        if (bullet.destroyed) return;
+        if (bullet.destroyed || enemy.destroyed || enemy.health <= 0) return;
+        if (this.collisionSeen.has(enemy)) return;
+        this.collisionSeen.add(enemy);
         const eh = centeredHitbox(
           enemy.x,
           enemy.y,
@@ -520,6 +534,7 @@ export class GameEngine {
       }
 
       for (const enemy of this.enemies) {
+        if (enemy.destroyed) continue;
         const eh = centeredHitbox(
           enemy.x,
           enemy.y,
@@ -529,11 +544,22 @@ export class GameEngine {
           enemy.collisionHeight,
         );
         if (rectsOverlap(ph.x, ph.y, ph.w, ph.h, eh.x, eh.y, eh.w, eh.h)) {
-          this.applyDamageToPlayer(player, W, H);
+          if (ENEMY_RAM_DESTROY_NON_BOSS && !enemy.isBoss) {
+            enemy.destroyed = true;
+            this.onEnemyKilled(enemy, gd);
+          } else {
+            this.applyDamageToPlayer(player, W, H);
+          }
           break;
         }
       }
     }
+
+    let ew2 = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      if (!this.enemies[i].destroyed) this.enemies[ew2++] = this.enemies[i];
+    }
+    this.enemies.length = ew2;
 
     const pp = this.playerProgress;
     for (let i = this.collectibles.length - 1; i >= 0; i--) {
@@ -648,11 +674,10 @@ export class GameEngine {
       }
     } else {
       gd.waveTimer += dt;
-      const toSpawn = getSpawnEntriesDue(gd.waveSpawnQueue, gd.waveTimer);
+      const toSpawn = drainSpawnQueue(gd.waveSpawnQueue, gd.waveTimer);
       for (const s of toSpawn) {
         this.enemies.push(createEnemy(s.type, W));
       }
-      gd.waveSpawnQueue = filterFutureSpawnEntries(gd.waveSpawnQueue, gd.waveTimer);
 
       if (isWaveComplete(gd, this.enemies.length)) {
         const pp = this.playerProgress;
@@ -750,7 +775,10 @@ export class GameEngine {
   }
 
   private spawnParticles(x: number, y: number, count: number, color: string, speed = 3): void {
-    for (let i = 0; i < count; i++) {
+    const room = MAX_PARTICLES - this.particles.length;
+    if (room <= 0) return;
+    const n = Math.min(count, room);
+    for (let i = 0; i < n; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const spd = speed * (0.5 + Math.random());
       const p = this.particlePool.acquire();
@@ -774,6 +802,9 @@ export class GameEngine {
   }
 
   private spawnRewardPopup(x: number, y: number, text: string, color: string): void {
+    if (this.rewardPopups.length >= MAX_REWARD_POPUPS) {
+      this.rewardPopups.shift();
+    }
     this.rewardPopups.push({ x, y, text, color, life: 60, maxLife: 60, vy: -1.5 });
   }
 

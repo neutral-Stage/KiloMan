@@ -32,6 +32,10 @@ export const STAR_COUNT = 200;
 export const SPATIAL_CELL_SIZE = 64;
 export const MENU_LOOP_FPS = 15;
 export const OFF_SCREEN_ENEMY_PENALTY = false;
+export const MAX_PARTICLES = 120;
+export const MAX_REWARD_POPUPS = 12;
+export const STAR_REDRAW_INTERVAL = 2;
+export const ENEMY_RAM_DESTROY_NON_BOSS = true;
 
 /** Canvas palette — restrained, no neon defaults */
 export const COLORS = {
