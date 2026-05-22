@@ -1,25 +1,46 @@
-import { Enemy, PlayerShip, PowerUp } from '../types';
+import { Enemy, PlayerShip, PowerUp, ShipSkin } from '../types';
 import { COLORS } from '../constants';
+
+function skinPalette(skin: ShipSkin) {
+  switch (skin) {
+    case 'gold':
+      return { hull: '#c9a227', highlight: '#f0d878', cockpit: '#ffe08a', thruster: '#e8c06a' };
+    case 'neon':
+      return { hull: '#3d5a80', highlight: '#6eb5ff', cockpit: '#a8d4ff', thruster: '#6eb5ff' };
+    case 'stealth':
+      return { hull: '#2a3344', highlight: '#4a5568', cockpit: '#6b7d8f', thruster: '#4a5568' };
+    case 'vintage':
+      return { hull: '#8b6f47', highlight: '#c4a574', cockpit: '#e8d4b0', thruster: '#c4844a' };
+    default:
+      return {
+        hull: COLORS.playerHull,
+        highlight: COLORS.playerHighlight,
+        cockpit: COLORS.playerCockpit,
+        thruster: COLORS.thrusterCore,
+      };
+  }
+}
 
 export function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip, frame: number) {
   const cx = p.x + p.width / 2;
   const cy = p.y + p.height / 2;
+  const palette = skinPalette(p.shipSkin);
 
   ctx.save();
 
-  const flicker = Math.sin(p.thrusterFrame * 0.5) * 4;
-  const thrusterGrad = ctx.createLinearGradient(cx, p.y + p.height, cx, p.y + p.height + 20 + flicker);
-  thrusterGrad.addColorStop(0, COLORS.cyan);
-  thrusterGrad.addColorStop(0.5, COLORS.orange);
-  thrusterGrad.addColorStop(1, 'transparent');
+  const flicker = Math.sin(p.thrusterFrame * 0.5) * 3;
+  const thrusterGrad = ctx.createLinearGradient(cx, p.y + p.height, cx, p.y + p.height + 16 + flicker);
+  thrusterGrad.addColorStop(0, palette.thruster);
+  thrusterGrad.addColorStop(0.6, COLORS.warmDeep);
+  thrusterGrad.addColorStop(1, COLORS.thrusterFade);
   ctx.fillStyle = thrusterGrad;
   ctx.beginPath();
-  ctx.moveTo(cx - 8, p.y + p.height);
-  ctx.lineTo(cx, p.y + p.height + 18 + flicker);
-  ctx.lineTo(cx + 8, p.y + p.height);
+  ctx.moveTo(cx - 7, p.y + p.height);
+  ctx.lineTo(cx, p.y + p.height + 14 + flicker);
+  ctx.lineTo(cx + 7, p.y + p.height);
   ctx.fill();
 
-  ctx.fillStyle = COLORS.playerShip;
+  ctx.fillStyle = palette.hull;
   ctx.beginPath();
   ctx.moveTo(cx, p.y);
   ctx.lineTo(cx + 18, p.y + 30);
@@ -33,15 +54,12 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip, frame: 
   ctx.closePath();
   ctx.fill();
 
-  ctx.fillStyle = COLORS.cyan;
-  ctx.shadowColor = COLORS.cyan;
-  ctx.shadowBlur = 6;
+  ctx.fillStyle = palette.cockpit;
   ctx.beginPath();
   ctx.ellipse(cx, p.y + 16, 4, 8, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.shadowBlur = 0;
 
-  ctx.strokeStyle = COLORS.playerAccent;
+  ctx.strokeStyle = palette.highlight;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(cx - 14, p.y + 28);
@@ -53,11 +71,11 @@ export function drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerShip, frame: 
   ctx.stroke();
 
   if (p.powerUps.shield > 0) {
-    ctx.strokeStyle = COLORS.cyan;
-    ctx.globalAlpha = 0.4 + Math.sin(frame * 0.1) * 0.2;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = COLORS.powerShield;
+    ctx.globalAlpha = 0.35 + Math.sin(frame * 0.08) * 0.15;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.ellipse(cx, cy, p.width * 0.8, p.height * 0.7, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, p.width * 0.78, p.height * 0.68, 0, 0, Math.PI * 2);
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
@@ -85,23 +103,21 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = COLORS.yellow;
-    ctx.shadowColor = COLORS.yellow;
-    ctx.shadowBlur = 10;
+    ctx.fillStyle = COLORS.bossCore;
     ctx.beginPath();
-    ctx.ellipse(cx, cy, 12, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, 11, 7, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.shadowBlur = 0;
 
     const barW = e.width;
-    const barH = 6;
+    const barH = 5;
     const barX = e.x;
-    const barY = e.y - 12;
-    ctx.fillStyle = '#333';
+    const barY = e.y - 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillRect(barX, barY, barW, barH);
-    ctx.fillStyle = COLORS.red;
+    ctx.fillStyle = COLORS.danger;
     ctx.fillRect(barX, barY, barW * (e.health / e.maxHealth), barH);
-    ctx.strokeStyle = '#666';
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
     ctx.strokeRect(barX, barY, barW, barH);
   } else {
     ctx.fillStyle = e.color;
@@ -115,9 +131,9 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
         ctx.lineTo(e.x, cy);
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = COLORS.particleWhite;
         ctx.beginPath();
-        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
         ctx.fill();
         break;
 
@@ -133,9 +149,9 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
         }
         ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = '#000';
+        ctx.fillStyle = 'rgba(10, 15, 24, 0.85)';
         ctx.beginPath();
-        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
@@ -155,17 +171,15 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
 
       case 'tank': {
         ctx.fillRect(e.x + 4, e.y + 4, e.width - 8, e.height - 8);
-        ctx.strokeStyle = '#aaa';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(e.x, e.y, e.width, e.height);
-        ctx.fillStyle = '#666';
-        ctx.fillRect(cx - 3, e.y + e.height - 4, 6, 10);
         const tw = e.width;
         const th = 4;
-        ctx.fillStyle = '#333';
-        ctx.fillRect(e.x, e.y - 8, tw, th);
-        ctx.fillStyle = COLORS.green;
-        ctx.fillRect(e.x, e.y - 8, tw * (e.health / e.maxHealth), th);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(e.x, e.y - 7, tw, th);
+        ctx.fillStyle = COLORS.success;
+        ctx.fillRect(e.x, e.y - 7, tw * (e.health / e.maxHealth), th);
         break;
       }
     }
@@ -177,30 +191,44 @@ export function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy) {
 export function drawPowerUp(ctx: CanvasRenderingContext2D, pu: PowerUp, frame: number) {
   const cx = pu.x + pu.width / 2;
   const cy = pu.y + pu.height / 2;
-  const pulse = Math.sin(frame * 0.1) * 2;
+  const pulse = Math.sin(frame * 0.08) * 1.5;
 
   ctx.save();
 
   let color: string;
   let label: string;
   switch (pu.type) {
-    case 'spread': color = COLORS.magenta; label = 'S'; break;
-    case 'shield': color = COLORS.cyan; label = '◊'; break;
-    case 'speed': color = COLORS.green; label = '»'; break;
-    case 'life': color = COLORS.red; label = '+'; break;
+    case 'spread':
+      color = COLORS.powerSpread;
+      label = 'S';
+      break;
+    case 'shield':
+      color = COLORS.powerShield;
+      label = '◊';
+      break;
+    case 'speed':
+      color = COLORS.powerSpeed;
+      label = '»';
+      break;
+    case 'life':
+      color = COLORS.powerLife;
+      label = '+';
+      break;
   }
 
+  ctx.fillStyle = 'rgba(10, 15, 24, 0.75)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 11 + pulse, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 8 + pulse;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.arc(cx, cy, 10 + pulse, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.shadowBlur = 0;
 
   ctx.fillStyle = color;
-  ctx.font = 'bold 14px monospace';
+  ctx.font = '600 12px var(--font-mono), ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, cx, cy);

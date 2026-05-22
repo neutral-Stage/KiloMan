@@ -10,7 +10,7 @@ Kilo Shooter is a single-route Next.js app. All gameplay runs in one client comp
 |-------|----------|---------|
 | Screen state | `GameContainer` → `useState<GameState>` | `start` \| `playing` \| `paused` \| `gameover` |
 | Simulation | `GameCanvas` refs | Player, bullets, enemies, particles, waves |
-| Persistence | `storage.ts` | High score in `localStorage` |
+| Persistence | `storage.ts`, `rewards/progress.ts` | High score and meta-progress in `localStorage` |
 
 ## Game loop
 
@@ -44,11 +44,29 @@ All visuals are Canvas 2D. `rendering/` modules are pure functions: `(ctx, entit
 
 `AudioEngine` lazily creates `AudioContext` and resumes on user input. Explosion uses a noise buffer; other SFX use oscillators.
 
-## Future improvements (optional)
+## Object pooling
 
-- Object pooling for bullets/particles
-- Touch controls for mobile
-- React HUD overlay for accessibility
-- Unit tests for `collision`, `generateWave`, wave completion logic
+`pool.ts` provides `ObjectPool`, `createBulletPool`, and `createParticlePool`. The game loop uses `compactBullets` / `compactParticles` to remove dead entities in-place and return them to the pool instead of allocating new objects each frame.
+
+## Touch controls
+
+`TouchControls.tsx` renders a mobile-only (`md:hidden`) virtual D-pad, fire button, and pause control. Input is written to a shared `touchInputRef` merged with keyboard state in `GameCanvas`.
+
+## Accessible HUD
+
+`UIOverlay.tsx` is a React overlay with `aria-live` regions, a semantic health `progressbar`, and labeled score/wave/lives. Canvas HUD drawing was removed during play; the game loop publishes `HudSnapshot` via `onHudUpdate`.
+
+## Tests
+
+Run `npm test` (Vitest). Coverage includes:
+
+- `collision.test.ts` — AABB overlap
+- `waveLogic.test.ts` — spawn queue, wave completion, `generateWave` integration
+- `pool.test.ts` — compact/release behavior
+- `achievements.test.ts` — unlock and reward grants
+
+## Rewards (meta-progress)
+
+Collectibles, achievements, and shop unlocks live under `rewards/`. Progress persists in `localStorage` (`kiloShooterProgress`). Open the shop from the start screen or press **S**.
 
 > **Note:** `architecture_plan.md` describes an older **Kilo Man platformer** design that was not implemented. This document reflects the current **space shooter** codebase.

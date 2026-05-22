@@ -1,10 +1,54 @@
 // ===== KILO SHOOTER - Type Definitions =====
 
-export type GameState = 'start' | 'playing' | 'paused' | 'gameover';
+export type GameState = 'start' | 'playing' | 'paused' | 'gameover' | 'shop';
+
+export type ShipSkin = 'default' | 'gold' | 'neon' | 'stealth' | 'vintage';
+
+/** Touch / virtual control state (merged with keyboard in GameCanvas). */
+export interface TouchInput {
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  fire: boolean;
+}
+
+export const defaultTouchInput = (): TouchInput => ({
+  left: false,
+  right: false,
+  up: false,
+  down: false,
+  fire: false,
+});
+
+/** React HUD snapshot — updated from the game loop for accessibility. */
+export interface HudSnapshot {
+  score: number;
+  highScore: number;
+  wave: number;
+  lives: number;
+  health: number;
+  maxHealth: number;
+  powerUps: {
+    spread: boolean;
+    shield: boolean;
+    speed: boolean;
+  };
+  betweenWaves: boolean;
+  waveAnnouncement: string | null;
+  totalCoins: number;
+  sessionCoins: number;
+  totalGems: number;
+  sessionGems: number;
+  noDamageStreak: number;
+  shipSkin: ShipSkin;
+}
 
 export interface PlayerShip {
   x: number;
   y: number;
+  vx: number;
+  vy: number;
   width: number;
   height: number;
   speed: number;
@@ -14,6 +58,7 @@ export interface PlayerShip {
   invincibleTimer: number; // frames of invincibility remaining
   powerUps: ActivePowerUps;
   thrusterFrame: number;
+  shipSkin: ShipSkin;
 }
 
 export interface ActivePowerUps {
@@ -70,6 +115,91 @@ export interface PowerUp {
   height: number;
   type: PowerUpType;
   vy: number;
+}
+
+export type CollectibleType = 'coin' | 'gem' | 'diamond';
+
+export interface Collectible {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: CollectibleType;
+  vx: number;
+  vy: number;
+  value: number;
+}
+
+export interface RewardPopup {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  life: number;
+  maxLife: number;
+  vy: number;
+}
+
+export type AchievementId =
+  | 'first_coin'
+  | 'coin_collector_100'
+  | 'coin_collector_500'
+  | 'coin_collector_1000'
+  | 'gem_hunter_10'
+  | 'gem_hunter_50'
+  | 'wave_5_no_damage'
+  | 'wave_10_no_damage'
+  | 'first_blood'
+  | 'sharpshooter'
+  | 'boss_killer'
+  | 'shield_master'
+  | 'survivor_100wave';
+
+export type UnlockId =
+  | 'skin_gold'
+  | 'skin_neon'
+  | 'skin_stealth'
+  | 'skin_vintage'
+  | 'upgrade_health'
+  | 'upgrade_spread'
+  | 'upgrade_shield'
+  | 'upgrade_speed';
+
+export interface Achievement {
+  id: AchievementId;
+  title: string;
+  description: string;
+  unlocked: boolean;
+  unlockedAt?: number;
+  progress: number;
+  target: number;
+}
+
+export interface Unlock {
+  id: UnlockId;
+  name: string;
+  description: string;
+  cost: number;
+  type: 'skin' | 'upgrade';
+  purchased: boolean;
+  active: boolean;
+}
+
+export interface PlayerProgress {
+  totalCoins: number;
+  totalGems: number;
+  totalDiamonds: number;
+  sessionCoins: number;
+  sessionGems: number;
+  achievements: Achievement[];
+  unlocks: Unlock[];
+  wavesWithoutDamage: number;
+  currentNoDamageWave: number;
+  enemiesDefeated: number;
+  bossKills: number;
+  totalShots: number;
+  shotsHit: number;
+  shieldBlocks: number;
 }
 
 export interface Particle {

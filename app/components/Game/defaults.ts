@@ -1,4 +1,4 @@
-import { GameData, PlayerShip } from './types';
+import { GameData, PlayerShip, PlayerProgress } from './types';
 import {
   PLAYER_STARTING_HEALTH,
   PLAYER_STARTING_LIVES,
@@ -7,11 +7,14 @@ import {
   PLAYER_SHIP_WIDTH,
 } from './constants';
 import { loadHighScore } from './storage';
+import { applyUnlockEffects } from './rewards/achievements';
 
-export function createDefaultPlayer(cx: number, cy: number): PlayerShip {
-  return {
+export function createDefaultPlayer(cx: number, cy: number, progress?: PlayerProgress): PlayerShip {
+  const player: PlayerShip = {
     x: cx - PLAYER_SHIP_WIDTH / 2,
     y: cy,
+    vx: 0,
+    vy: 0,
     width: PLAYER_SHIP_WIDTH,
     height: PLAYER_SHIP_HEIGHT,
     speed: PLAYER_SHIP_SPEED,
@@ -21,7 +24,17 @@ export function createDefaultPlayer(cx: number, cy: number): PlayerShip {
     invincibleTimer: 0,
     powerUps: { spreadShot: 0, shield: 0, speedBoost: 0 },
     thrusterFrame: 0,
+    shipSkin: 'default',
   };
+
+  if (progress) {
+    applyUnlockEffects(player, progress);
+    if (progress.unlocks.find((u) => u.id === 'upgrade_speed' && u.purchased)) {
+      player.speed *= 1.2;
+    }
+  }
+
+  return player;
 }
 
 export function createDefaultGameData(): GameData {

@@ -47,9 +47,8 @@ app/
     ├── waveGenerator.ts    # Waves & enemy factory
     ├── AudioEngine.ts      # Procedural SFX
     └── rendering/          # Canvas draw helpers
-        ├── screens.ts
-        ├── entities.ts
-        └── hud.ts
+        ├── background.ts
+        └── entities.ts
 ```
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.
