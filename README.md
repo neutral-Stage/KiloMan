@@ -11,6 +11,27 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Deploy on Vercel
+
+This app is a standard **Next.js** project with no server secrets required.
+
+### Option A — Import from GitHub (recommended)
+
+1. Open [Import KiloMan on Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fneutral-Stage%2FKiloMan&project-name=kiloman&repository-name=KiloMan&teamSlug=shuvo-anirban-roys-projects).
+2. Confirm **Framework Preset: Next.js** and root directory `.`
+3. Click **Deploy** — production deploys from `main` on every push.
+
+### Option B — Vercel CLI
+
+```bash
+npm install -g vercel
+vercel login
+vercel link   # team: Shuvo Anirban Roy's projects
+vercel deploy --prod
+```
+
+`vercel.json` sets `npm install --legacy-peer-deps` for React 19 RC peer deps.
+
 ## Controls
 
 | Key | Action |
