@@ -20,6 +20,13 @@ const UNLOCK_ORDER: UnlockId[] = [
   'upgrade_speed',
 ];
 
+const SKIN_PREVIEW: Partial<Record<UnlockId, string>> = {
+  skin_gold: '#c9a227',
+  skin_neon: '#6eb5ff',
+  skin_stealth: '#4a5568',
+  skin_vintage: '#c4a574',
+};
+
 export default function ShopScreen({ progress, onPurchase, onClose }: ShopScreenProps) {
   return (
     <div
@@ -31,7 +38,7 @@ export default function ShopScreen({ progress, onPurchase, onClose }: ShopScreen
       <div className="game-panel max-h-[90vh] w-full max-w-lg overflow-y-auto px-6 py-8">
         <p className="game-label">Hangar</p>
         <h1 className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold text-[var(--game-text)]">
-          Upgrade shop
+          Ship upgrades
         </h1>
         <p className="mt-2 text-sm text-[var(--game-text-muted)]">
           Balance:{' '}
@@ -46,45 +53,48 @@ export default function ShopScreen({ progress, onPurchase, onClose }: ShopScreen
           )}
         </p>
 
-        <ul className="mt-6 space-y-3">
-          {UNLOCK_ORDER.map((id, index) => {
+        <ul className="mt-6 grid gap-3 sm:grid-cols-2">
+          {UNLOCK_ORDER.map((id) => {
             const def = UNLOCKS[id];
             const unlock = progress.unlocks.find((u) => u.id === id);
             const purchased = unlock?.purchased ?? false;
             const canAfford = progress.totalCoins >= def.cost;
+            const preview = SKIN_PREVIEW[id];
 
             return (
               <li
                 key={id}
-                className="flex items-start justify-between gap-3 rounded-lg border border-[var(--game-border)] bg-[rgba(255,255,255,0.03)] px-4 py-3"
+                className="flex flex-col rounded-xl border border-[var(--game-border)] bg-[rgba(255,255,255,0.03)] p-4"
               >
-                <div>
-                  <p className="text-sm font-medium text-[var(--game-text)]">
-                    <span className="game-stat mr-2 text-[var(--game-text-muted)]">{index + 1}.</span>
-                    {def.name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-[var(--game-text-muted)]">{def.description}</p>
-                  <p className="mt-1 text-xs text-[var(--game-warm)]">{def.cost.toLocaleString()} coins</p>
-                </div>
+                {preview && (
+                  <div
+                    className="mb-3 h-10 w-10 self-center rounded-full border border-[var(--game-border)]"
+                    style={{
+                      background: `radial-gradient(circle at 30% 30%, ${preview}, transparent 70%)`,
+                      boxShadow: `0 0 16px ${preview}44`,
+                    }}
+                    aria-hidden
+                  />
+                )}
+                <p className="text-sm font-medium text-[var(--game-text)]">{def.name}</p>
+                <p className="mt-1 flex-1 text-xs text-[var(--game-text-muted)]">{def.description}</p>
+                <p className="mt-2 text-xs text-[var(--game-warm)]">{def.cost.toLocaleString()} coins</p>
                 <button
                   type="button"
-                  className="game-btn shrink-0 px-3 py-1.5 text-xs disabled:opacity-40"
+                  className="game-btn mt-3 w-full px-3 py-2 text-xs disabled:opacity-40"
                   disabled={purchased || !canAfford}
                   onClick={() => onPurchase(id)}
                 >
-                  {purchased ? 'Owned' : 'Buy'}
+                  {purchased ? 'Owned' : 'Purchase'}
                 </button>
               </li>
             );
           })}
         </ul>
 
-        <button type="button" className="game-btn mt-8 w-full" onClick={onClose}>
-          Back to menu
+        <button type="button" className="game-btn game-btn--ghost mt-6 w-full" onClick={onClose}>
+          Back to hangar bay
         </button>
-        <p className="mt-4 text-center text-[11px] text-[var(--game-text-muted)]">
-          Press S from the start screen to open the shop · Esc to return
-        </p>
       </div>
     </div>
   );

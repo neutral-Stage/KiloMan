@@ -62,3 +62,19 @@ export function filterFutureSpawnEntries(
 ): WaveSpawnEntry[] {
   return queue.filter((s) => s.spawnAt > waveTimer);
 }
+
+/** Single-pass: collect due spawns and compact the queue in place. */
+export function drainSpawnQueue(queue: WaveSpawnEntry[], waveTimer: number): WaveSpawnEntry[] {
+  const due: WaveSpawnEntry[] = [];
+  let write = 0;
+  for (let i = 0; i < queue.length; i++) {
+    const entry = queue[i];
+    if (entry.spawnAt <= waveTimer) {
+      due.push(entry);
+    } else {
+      queue[write++] = entry;
+    }
+  }
+  queue.length = write;
+  return due;
+}

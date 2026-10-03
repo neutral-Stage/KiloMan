@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { GameState } from "./types";
+import { LOGO_PATH } from "./constants";
 import { loadHighScore } from "./storage";
 
 interface GameScreensProps {
@@ -45,7 +47,10 @@ export default function GameScreens({
       aria-label={isStart ? "Start game" : isPaused ? "Paused" : "Game over"}
     >
       <div className="game-panel w-full max-w-md px-8 py-9 text-center">
-        <p className="game-label">Kilo Shooter</p>
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-[var(--game-border)] bg-[rgba(110,181,255,0.08)]">
+          <Image src={LOGO_PATH} alt="" width={36} height={36} priority />
+        </div>
+        <p className="game-label mt-4">Kilo Shooter</p>
 
         <h1 className="mt-3 font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-[var(--game-text)] sm:text-4xl">
           {isStart && "Ready for launch"}
@@ -55,7 +60,7 @@ export default function GameScreens({
 
         <p className="mt-3 text-sm leading-relaxed text-[var(--game-text-muted)]">
           {isStart &&
-            "Arrow keys or WASD to move. Space to fire. Survive the waves and beat your high score."}
+            "Survive escalating waves, collect upgrades, and push your high score."}
           {isPaused && "Press Esc or tap Resume to continue."}
           {gameState === "gameover" && (
             <>
@@ -69,8 +74,34 @@ export default function GameScreens({
 
         {best > 0 && (
           <p className="mt-4 text-xs text-[var(--game-text-muted)]">
-            Best run <span className="game-stat text-[var(--game-accent)]">{best.toLocaleString()}</span>
+            Best run{" "}
+            <span className="game-stat text-[var(--game-accent)]">{best.toLocaleString()}</span>
           </p>
+        )}
+
+        {isStart && (
+          <div className="mt-6 grid grid-cols-2 gap-2 text-left text-[11px] text-[var(--game-text-muted)]">
+            <span className="rounded-lg border border-[var(--game-border)] px-3 py-2">
+              <strong className="text-[var(--game-text)]">Move</strong>
+              <br />
+              WASD / Arrows
+            </span>
+            <span className="rounded-lg border border-[var(--game-border)] px-3 py-2">
+              <strong className="text-[var(--game-text)]">Fire</strong>
+              <br />
+              Space / Hold Fire
+            </span>
+            <span className="rounded-lg border border-[var(--game-border)] px-3 py-2">
+              <strong className="text-[var(--game-text)]">Pause</strong>
+              <br />
+              Esc
+            </span>
+            <span className="rounded-lg border border-[var(--game-border)] px-3 py-2">
+              <strong className="text-[var(--game-text)]">Shop</strong>
+              <br />
+              S on title
+            </span>
+          </div>
         )}
 
         <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
@@ -83,15 +114,19 @@ export default function GameScreens({
             {isStart ? "Start game" : isPaused ? "Resume" : "Play again"}
           </button>
           {isStart && onOpenShop && (
-            <button type="button" className="game-btn game-btn--ghost w-full sm:w-auto" onClick={onOpenShop}>
-              Shop ({totalCoins.toLocaleString()} coins)
+            <button
+              type="button"
+              className="game-btn game-btn--ghost w-full sm:w-auto"
+              onClick={onOpenShop}
+            >
+              Hangar ({totalCoins.toLocaleString()})
             </button>
           )}
         </div>
 
         {isStart && (
-          <p className="mt-6 text-[11px] text-[var(--game-text-muted)]">
-            Esc pauses during play · Press S for shop · Keyboard and touch supported
+          <p className="motion-safe-pulse mt-6 text-[11px] text-[var(--game-accent)]">
+            Press Enter or tap Start to launch
           </p>
         )}
       </div>

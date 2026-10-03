@@ -1,11 +1,11 @@
 # Kilo Shooter
 
-A fullscreen arcade space shooter built with **Next.js 15**, **React 19**, **TypeScript**, and **HTML5 Canvas**.
+A fullscreen arcade space shooter built with **Next.js 15**, **React 19**, **Pixi.js 8**, and **TypeScript**.
 
 ## Play
 
 ```bash
-npm install
+npm install --legacy-peer-deps
 npm run dev
 ```
 
@@ -26,7 +26,7 @@ This app is a standard **Next.js** project with no server secrets required.
 ```bash
 npm install -g vercel
 vercel login
-vercel link   # team: Shuvo Anirban Roy's projects
+vercel link
 vercel deploy --prod
 ```
 
@@ -40,39 +40,39 @@ vercel deploy --prod
 | **WASD** or **Arrow keys** | Move ship |
 | **Space** | Fire (auto-fire is always on) |
 | **Esc** | Pause / resume |
+| **S** | Shop (from title screen) |
 
 ## Features
 
-- Wave-based enemy spawns with increasing difficulty
-- Boss waves every 5 waves
+- Pixi.js WebGL rendering with procedural baked sprites and parallax stars
+- Wave-based enemy spawns with boss every 5 waves
 - Power-ups: spread shot, shield, speed boost, extra life
+- Screen shake, hit-stop, and damage flash feedback
 - Procedural Web Audio sound effects
-- High score saved to `localStorage`
-- Responsive fullscreen canvas
+- Meta-progression: coins, achievements, hangar shop, ship skins
+- High score and progress saved to `localStorage`
+- Responsive fullscreen canvas with mobile touch controls
 
 ## Project structure
 
 ```
 app/
-├── layout.tsx              # Root layout, metadata, viewport
-├── page.tsx                # Entry — mounts GameContainer
-├── globals.css             # Tailwind + base resets
+├── layout.tsx
+├── page.tsx
+├── globals.css
 └── components/Game/
-    ├── GameContainer.tsx   # Screen state (start / playing / paused / gameover)
-    ├── GameCanvas.tsx      # Game loop, physics, input
-    ├── types.ts            # TypeScript interfaces
-    ├── constants.ts        # Balance tuning & colors
-    ├── defaults.ts         # Default player & run state
-    ├── storage.ts          # High score persistence
-    ├── collision.ts        # AABB collision
-    ├── waveGenerator.ts    # Waves & enemy factory
-    ├── AudioEngine.ts      # Procedural SFX
-    └── rendering/          # Canvas draw helpers
-        ├── background.ts
-        └── entities.ts
+    ├── GameContainer.tsx     # React shell
+    ├── GameCanvas.tsx        # Pixi mount (thin wrapper)
+    ├── hooks/useGameEngine.ts
+    ├── engine/
+    │   ├── GameEngine.ts     # Simulation + orchestration
+    │   ├── GameLoop.ts       # State-aware rAF
+    │   ├── RenderSystem.ts   # Pixi layers
+    │   ├── TextureFactory.ts # Procedural art bake
+    │   └── systems/          # Input, VFX, spatial hash
+    ├── rewards/              # Achievements, shop, collectibles
+    └── __tests__/
 ```
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.
 
 ## Scripts
 
@@ -80,12 +80,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.
 |---------|-------------|
 | `npm run dev` | Development server |
 | `npm run build` | Production build |
-| `npm run start` | Run production build |
+| `npm test` | Vitest unit tests |
 | `npm run lint` | ESLint |
 
-## Stack
-
-- Next.js 15 (App Router)
-- React 19
-- Tailwind CSS v4
-- TypeScript (strict)
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for system design details.

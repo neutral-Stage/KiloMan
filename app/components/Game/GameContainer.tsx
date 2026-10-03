@@ -19,6 +19,7 @@ const GameContainer: React.FC = () => {
 
   const handleStart = useCallback(() => {
     resetTouchInput(touchInputRef);
+    setHud(null);
     setGameState('playing');
   }, []);
 
